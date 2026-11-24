@@ -155,6 +155,56 @@
       </Trigger>
     </Style.Triggers>
   </Style>
+  <Style x:Key="SoftDetailsExpander" TargetType="Expander">
+    <Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Expander">
+          <StackPanel>
+            <ToggleButton x:Name="HeaderSite" Content="{TemplateBinding Header}" MinHeight="32"
+                          FocusVisualStyle="{x:Null}"
+                          AutomationProperties.Name="{Binding Path=(AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}"
+                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border x:Name="Plate" CornerRadius="6" Padding="8,4" BorderThickness="1"
+                          BorderBrush="Transparent" Background="{DynamicResource TintBrush}">
+                    <DockPanel>
+                      <Path x:Name="Chevron" Data="M 4,2 L 7,5 L 4,8" Width="10" Height="10"
+                            DockPanel.Dock="Left" Margin="0,0,6,0" VerticalAlignment="Center"
+                            Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
+                            StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                      <ContentPresenter VerticalAlignment="Center"/>
+                    </DockPanel>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                      <Setter TargetName="Chevron" Property="Data" Value="M 2,4 L 5,7 L 8,4"/>
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Plate" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                    </Trigger>
+                    <Trigger Property="IsPressed" Value="True">
+                      <Setter TargetName="Plate" Property="Background" Value="{DynamicResource PressBrush}"/>
+                    </Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                      <Setter TargetName="Plate" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <ContentPresenter x:Name="ExpandSite" ContentSource="Content" Visibility="Collapsed"/>
+          </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsExpanded" Value="True">
+              <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <Style x:Key="ScrollTrackButton" TargetType="RepeatButton">
     <Setter Property="Focusable" Value="False"/>
     <Setter Property="Template">

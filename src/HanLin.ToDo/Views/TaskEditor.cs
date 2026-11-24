@@ -5,9 +5,13 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using Calendar = System.Windows.Controls.Calendar;
+using Forms = System.Windows.Forms;
 
 namespace HanLin.ToDo;
 
@@ -27,24 +31,27 @@ internal sealed class TaskEditor : Border
     private bool invalidDate;
 
     public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
-        bool keyboardDateShortcut = false)
+        bool isCaptureWindow = false)
     {
         this.save = save;
         this.cancel = cancel;
         string name = draft.Title;
         TodoDeadline? due = draft.Due;
-        CornerRadius = new CornerRadius(8);
-        Padding = new Thickness(9);
-        Margin = new Thickness(0, 3, 0, 4);
-        SetResourceReference(BackgroundProperty, "TintBrush");
+        if (!isCaptureWindow)
+        {
+            CornerRadius = new CornerRadius(8);
+            Padding = new Thickness(9);
+            Margin = new Thickness(0, 3, 0, 4);
+            SetResourceReference(BackgroundProperty, "TintBrush");
+        }
         TextElement.SetFontSize(this, 13);
         SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
 
         var fields = new StackPanel();
-        Child = fields;
         title = Ui.Input("任务", name);
         title.MaxLength = 300;
-        fields.Children.Add(Ui.Heading("任务", 14));
+        var taskLabel = Ui.Heading("任务", 14);
+        fields.Children.Add(taskLabel);
         fields.Children.Add(title);
 
         date = new DatePicker
@@ -96,7 +103,6 @@ internal sealed class TaskEditor : Border
         error.TextWrapping = TextWrapping.Wrap;
         error.Visibility = Visibility.Collapsed;
         error.Margin = new Thickness(0, 5, 0, 0);
-        fields.Children.Add(error);
         void RefreshDateInput()
         {
             invalidDate = false;
@@ -135,15 +141,62 @@ internal sealed class TaskEditor : Border
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 6, 0, 0)
         };
-        buttons.Children.Add(Ui.Button("取消", cancel));
+        var cancelButton = Ui.Button("取消", cancel);
+        buttons.Children.Add(cancelButton);
         buttons.Children.Add(Ui.Button("保存", Commit, primary: true));
-        fields.Children.Add(buttons);
-        if (keyboardDateShortcut)
+        if (isCaptureWindow)
         {
+            taskLabel.Margin = new Thickness(0, 0, 0, 5);
+            title.MinHeight = 36;
+            scheduleLabel.Margin = new Thickness(0, 9, 0, 3);
+            date.MinHeight = time.MinHeight = 34;
+            details.Margin = new Thickness(0, 10, 0, 0);
+            details.Style = (Style)Application.Current.FindResource("SoftDetailsExpander");
+            cancelButton.Margin = new Thickness(0, 0, 6, 0);
+            Child = CreateCaptureForm(fields, buttons);
             title.ToolTip = "Tab 打开日历，方向键选日期，Enter 保存。";
             title.PreviewKeyDown += OpenKeyboardCalendar;
         }
+        else
+        {
+            fields.Children.Add(error);
+            fields.Children.Add(buttons);
+            Child = fields;
+        }
         KeyDown += OnKey;
+    }
+
+    private Grid CreateCaptureForm(StackPanel fields, StackPanel buttons)
+    {
+        fields.Margin = new Thickness(16, 13, 16, 13);
+        var scroll = new ScrollViewer
+        {
+            Content = fields,
+            Style = (Style)Application.Current.FindResource("NoteScroll"),
+            Focusable = false,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        error.Margin = new Thickness(0, 0, 0, 7);
+        buttons.Margin = new Thickness(0);
+        var actions = new StackPanel();
+        actions.Children.Add(error);
+        actions.Children.Add(buttons);
+        var footer = new Border
+        {
+            Child = actions,
+            Padding = new Thickness(16, 9, 16, 11),
+            BorderThickness = new Thickness(0, 1, 0, 0)
+        };
+        footer.SetResourceReference(BorderBrushProperty, "LineBrush");
+
+        var form = new Grid();
+        form.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        form.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        form.Children.Add(scroll);
+        Grid.SetRow(footer, 1);
+        form.Children.Add(footer);
+        return form;
     }
 
     public bool IsPickerOpen => date.IsDropDownOpen || time.IsDropDownOpen || detailsEditor.IsPickerOpen;
@@ -278,27 +331,127 @@ internal sealed class CaptureWindow : Window
     {
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 新建待办";
-        FontFamily = new System.Windows.Media.FontFamily(theme.Font);
+        FontFamily = new FontFamily(theme.Font);
         Icon = Ui.AppIcon();
-        Width = 384;
+        Width = 402;
         SizeToContent = SizeToContent.Height;
         MaxHeight = SystemParameters.WorkArea.Height - 32;
         ResizeMode = ResizeMode.NoResize;
-        WindowStyle = WindowStyle.ToolWindow;
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
+        Background = Brushes.Transparent;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = false;
         Topmost = true;
-        SetResourceReference(BackgroundProperty, "SurfaceBrush");
         editor = new TaskEditor(new TodoDraft("", null, new()), task =>
         {
             string? error = save(task);
             if (error is null)
                 Close();
             return error;
-        }, Close, keyboardDateShortcut: true);
-        editor.Margin = new Thickness(10);
-        Content = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        }, Close, isCaptureWindow: true);
+        Content = CreateFrame(theme);
         ContentRendered += (_, _) => editor.FocusTitle();
+        SizeChanged += (_, args) =>
+        {
+            if (args.HeightChanged)
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(FitToWorkArea));
+        };
+        KeyDown += (_, args) =>
+        {
+            if (args.Key != Key.Escape || editor.IsPickerOpen)
+                return;
+            args.Handled = true;
+            Close();
+        };
+    }
+
+    private Grid CreateFrame(NoteTheme theme)
+    {
+        var frame = new Grid { Margin = new Thickness(NoteView.ShadowMargin) };
+        var corners = new CornerRadius(theme.Radius);
+        // Keep the shadow outside the text subtree so it does not affect text rendering.
+        var shadow = new Border
+        {
+            CornerRadius = corners,
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect { Color = Colors.Black, Opacity = 0.16, BlurRadius = 15, ShadowDepth = 2 }
+        };
+        shadow.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
+        frame.Children.Add(shadow);
+
+        var layout = new DockPanel();
+        var header = CreateHeader(theme);
+        DockPanel.SetDock(header, Dock.Top);
+        layout.Children.Add(header);
+        layout.Children.Add(editor);
+        var card = new Border { CornerRadius = corners, BorderThickness = new Thickness(1), Child = layout };
+        card.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
+        card.SetResourceReference(Border.BorderBrushProperty, "EdgeBrush");
+        RenderOptions.SetClearTypeHint(card, ClearTypeHint.Enabled);
+        frame.Children.Add(card);
+        return frame;
+    }
+
+    private Border CreateHeader(NoteTheme theme)
+    {
+        var caption = new DockPanel { Height = 46, Margin = new Thickness(14, 0, 8, 0) };
+        var close = Ui.Button("关闭新建窗口", Close, "close");
+        close.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(close, Dock.Right);
+        caption.Children.Add(close);
+
+        var glyph = new Border
+        {
+            Child = Ui.Glyph("plus"),
+            Width = 25, Height = 25, CornerRadius = new CornerRadius(7),
+            Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center
+        };
+        glyph.SetResourceReference(Border.BackgroundProperty, "TintBrush");
+        DockPanel.SetDock(glyph, Dock.Left);
+        caption.Children.Add(glyph);
+        var heading = Ui.Heading("新建待办", theme.Size + 3);
+        heading.VerticalAlignment = VerticalAlignment.Center;
+        caption.Children.Add(heading);
+
+        var radius = Math.Max(0, theme.Radius - 1);
+        var header = new Border
+        {
+            Child = caption,
+            CornerRadius = new CornerRadius(radius, radius, 0, 0),
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+        header.SetResourceReference(Border.BackgroundProperty, "HeaderBrush");
+        header.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+        header.MouseLeftButtonDown += (_, args) =>
+        {
+            if (Mouse.LeftButton != MouseButtonState.Pressed)
+                return;
+            args.Handled = true;
+            DragMove();
+            FitToWorkArea();
+        };
+        return header;
+    }
+
+    private void FitToWorkArea()
+    {
+        if (!IsVisible)
+            return;
+        IntPtr window = new WindowInteropHelper(this).Handle;
+        if (window == IntPtr.Zero || !Native.GetWindowRect(window, out var bounds))
+            return;
+
+        var area = Forms.Screen.FromHandle(window).WorkingArea;
+        uint dpi = Native.GetDpiForWindow(window);
+        if (dpi > 0)
+            MaxHeight = Math.Max(1, area.Height * 96.0 / dpi - 32);
+
+        int left = Math.Clamp(bounds.Left, area.Left, Math.Max(area.Left, area.Right - bounds.Width));
+        int top = Math.Clamp(bounds.Top, area.Top, Math.Max(area.Top, area.Bottom - bounds.Height));
+        if (left != bounds.Left || top != bounds.Top)
+            Native.SetWindowPos(window, IntPtr.Zero, left, top, 0, 0,
+                Native.NoSize | Native.NoZOrder | Native.NoActivate);
     }
 
     public void FocusEditor()
