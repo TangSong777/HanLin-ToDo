@@ -1,6 +1,6 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
-    [string]$OutputDirectory = 'D:\桌面\HanLin-ToDo',
+    [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'HanLin-ToDo'),
     [string]$DotNet = 'dotnet',
     [string]$StagingDirectory,
     [switch]$SkipLaunch
