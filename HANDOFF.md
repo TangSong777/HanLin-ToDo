@@ -31,6 +31,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 | 维度 | 状态 |
 | --- | --- |
 | 代码 | Windows 桌面版使用 WPF 与 .NET 10，便签支持连续录入、筛选和任务详情 |
+| 版本 | 1.0.0 已发布（2026-11-24），tag v1.0.0 |
 | 仓库 | 公开：https://github.com/TangSong777/HanLin-ToDo |
 | 默认分支 | main |
 | 分支 | main（稳定发布）、snapshot（日常开发） |
@@ -179,3 +180,4 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 | 2026-11-24 | 调整撤销删除提示 | 左下角显示跟随主题的圆角小字提示，5 秒后自动收起 |
 | 2026-11-24 | 精简任务行及菜单 | 置顶和编辑集中到右键菜单，移除今日计划和分组清单入口，原有任务在统一视图显示 |
 | 2026-11-24 | 建立发布纪律 | 新增 PENDING-CHANGES.md、CHANGELOG.md 与 csproj 版本号，发布流程写入 README 与交接文档 |
+| 2026-11-24 | 发布 1.0.0 | 首个正式版本，tag v1.0.0，GitHub Release 附带 EXE |
