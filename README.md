@@ -65,6 +65,20 @@ git push origin snapshot
 
 初始化配置将仓库设为公开。公开仓库可免费启用 GitHub 的分支规则集，Actions 也不占用私有仓库的分钟数配额。 [GitHub 规则集说明](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
 
+## 发布
+
+发布遵循 snapshot → main 的固定顺序，提交不等于发布。
+
+1. 读 `PENDING-CHANGES.md` 全部条目，汇总进 `CHANGELOG.md` 与 GitHub Release 说明。
+2. 按改动类型确定版本号（MAJOR / MINOR / PATCH），更新 `src/HanLin.ToDo/HanLin.ToDo.csproj` 的 `Version`。
+3. 清空 `PENDING-CHANGES.md`，标题改为「自 <新版本> 起」。
+4. 提交并推送 `snapshot`。
+5. 运行 `tools/Publish-Windows.ps1` 打包，记录 EXE 的 SHA256。
+6. 合并到 `main`：`git switch main && git merge --ff-only snapshot`。`main` 的规则集要求 PR，发布前需临时禁用规则集，推送后立即恢复。
+7. 打 tag：`git tag -a v<版本> -m "..."`，推送 tag。
+8. `gh release create v<版本> --repo TangSong777/HanLin-ToDo --title "..." --notes-file ... --latest`。
+9. 切回 `snapshot`，核验 release 与 tag。
+
 ## 初始化
 
 在配置好 Git 提交身份并以 `TangSong777` 登录 GitHub CLI 后，从项目目录运行 `Initialize-Repository.ps1`。脚本会建立本地分支、创建公开仓库、推送初始提交并应用分支规则集。`main` 的初始提交包含发布配置，日常工作从 `snapshot` 开始。

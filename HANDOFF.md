@@ -105,7 +105,21 @@ gh api repos/TangSong777/HanLin-ToDo/rulesets
 gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 ```
 
-## 七、开发约定
+## 七、发布流程
+
+发布遵循 snapshot → main 的固定顺序，提交不等于发布。
+
+1. 读 `PENDING-CHANGES.md` 全部条目，汇总进 `CHANGELOG.md` 与 GitHub Release 说明。
+2. 按改动类型确定版本号（MAJOR / MINOR / PATCH），更新 `src/HanLin.ToDo/HanLin.ToDo.csproj` 的 `Version`。
+3. 清空 `PENDING-CHANGES.md`，标题改为「自 <新版本> 起」。
+4. 提交并推送 `snapshot`。
+5. 运行 `tools/Publish-Windows.ps1` 打包，记录 EXE 的 SHA256。
+6. 合并到 `main`：`git switch main && git merge --ff-only snapshot`。`main` 的规则集要求 PR，发布前需临时禁用规则集，推送后立即恢复。
+7. 打 tag：`git tag -a v<版本> -m "..."`，推送 tag。
+8. `gh release create v<版本> --repo TangSong777/HanLin-ToDo --title "..." --notes-file ... --latest`。
+9. 切回 `snapshot`，核验 release 与 tag。
+
+## 八、开发约定
 
 - `todo.md` 保存在所选工作目录。默认在 EXE 同级 `data`，已有旧版任务会在首次使用时复制到缺少任务文件的目标。`%LOCALAPPDATA%\HanLin-ToDo\settings.json` 保存工作目录选择、位置、锁定和外观等设置。开发验证可用 `--data-dir <目录>` 固定独立的任务和设置目录。
 - 每次交付本地新版时使用 `tools/Publish-Windows.ps1`，将最新 EXE 保存到 `D:\桌面\HanLin-ToDo`。
@@ -115,7 +129,7 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 - snapshot 上日常开发，main 在首发 PR 合并后包含稳定版。
 - 不直接推 main；规则集会拒绝。
 
-## 八、待办
+## 九、待办
 
 - [x] 实现全局快捷键、桌面便签、Markdown 读写、排序与逾期标记
 - [x] 实现便签内编辑、位置锁定、可选登录自启、恢复与主题设置
@@ -136,7 +150,7 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 - [ ] 首次 snapshot → main 的 PR 演练，验证规则集与检查确实生效
 - [ ] 视需要补充 LICENSE、CONTRIBUTING
 
-## 九、文档维护（实时更新）
+## 十、文档维护（实时更新）
 
 本文件必须随项目实时更新，规则：
 
@@ -164,3 +178,4 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 | 2026-11-24 | 修正桌面输入并支持键盘选日期 | 便签改为独立顶层工具窗口，桌面层级单独维护，录入框可用 Tab 和方向键选日并按 Enter 保存 |
 | 2026-11-24 | 调整撤销删除提示 | 左下角显示跟随主题的圆角小字提示，5 秒后自动收起 |
 | 2026-11-24 | 精简任务行及菜单 | 置顶和编辑集中到右键菜单，移除今日计划和分组清单入口，原有任务在统一视图显示 |
+| 2026-11-24 | 建立发布纪律 | 新增 PENDING-CHANGES.md、CHANGELOG.md 与 csproj 版本号，发布流程写入 README 与交接文档 |
