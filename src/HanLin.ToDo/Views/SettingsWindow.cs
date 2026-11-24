@@ -3,7 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
@@ -27,13 +26,16 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox height;
     private readonly TextBox workingDirectory;
     private readonly CheckBox startup;
+    private readonly TextBlock sizeLockHint = Ui.Text("解锁便签后可调整尺寸和界面比例。", 12, "MutedBrush");
     private readonly TextBlock message = Ui.Text("", 12, "OverdueBrush");
     private int displayedWidth;
     private int displayedHeight;
+    private int displayedScale;
 
-    public SettingsWindow(NoteTheme theme, bool startWithWindows, string currentDirectory, string? defaultDirectory,
+    public SettingsWindow(NotePreferences preferences, bool startWithWindows, string currentDirectory, string? defaultDirectory,
         Action openTasks, Func<NoteTheme, bool, string, string?> save)
     {
+        var theme = preferences.Theme;
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 便签设置";
         Icon = Ui.AppIcon();
@@ -53,15 +55,18 @@ internal sealed class SettingsWindow : Window
         var heading = Ui.Heading("尺寸和比例", 20);
         heading.Margin = new Thickness(0, 13, 0, 7);
         fields.Children.Add(heading);
-        fields.Children.Add(SizePresets());
 
         displayedWidth = theme.Width;
         displayedHeight = theme.Height;
+        displayedScale = theme.Scale;
         var dimensions = TwoColumns();
         width = AddDimension(dimensions, "宽度", theme.Width, 0);
         height = AddDimension(dimensions, "高度", theme.Height, 2);
         fields.Children.Add(dimensions);
         zoom = Scale("界面比例", theme.Scale, NoteTheme.MinimumScale, NoteTheme.MaximumScale, "%", 5);
+        sizeLockHint.Margin = new Thickness(0, 5, 0, 0);
+        fields.Children.Add(sizeLockHint);
+        FollowWindowGeometry(preferences);
 
         var appearance = Ui.Heading("颜色和文字", 18);
         appearance.Margin = new Thickness(0, 13, 0, 1);
@@ -171,41 +176,21 @@ internal sealed class SettingsWindow : Window
         return input;
     }
 
-    public void FollowWindowSize(NoteTheme theme)
+    public void FollowWindowGeometry(NotePreferences preferences)
     {
-        if (width.Text == DimensionText(displayedWidth))
+        var theme = preferences.Theme;
+        bool locked = preferences.Locked;
+        if (locked || width.Text == DimensionText(displayedWidth))
             width.Text = DimensionText(theme.Width);
-        if (height.Text == DimensionText(displayedHeight))
+        if (locked || height.Text == DimensionText(displayedHeight))
             height.Text = DimensionText(theme.Height);
+        if (locked || (int)zoom.Value == displayedScale)
+            zoom.Value = theme.Scale;
         displayedWidth = theme.Width;
         displayedHeight = theme.Height;
-    }
-
-    private UniformGrid SizePresets()
-    {
-        var group = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 9) };
-        var presets = new[]
-        {
-            ("紧凑", 300, 258, 14, 4),
-            ("标准", NoteTheme.DefaultWidth, NoteTheme.DefaultHeight, NoteTheme.DefaultTextSize, NoteTheme.DefaultRowPadding),
-            ("宽敞", 462, 428, 17, 8)
-        };
-        foreach (var (label, presetWidth, presetHeight, textSize, rowPadding) in presets)
-        {
-            var option = Ui.Button(label, () =>
-            {
-                width.Text = DimensionText(presetWidth);
-                height.Text = DimensionText(presetHeight);
-                zoom.Value = 100;
-                size.Value = textSize;
-                padding.Value = rowPadding;
-            });
-            option.ToolTip = $"{presetWidth} × {presetHeight} · 100% 界面比例";
-            option.Margin = new Thickness(0, 0, 5, 0);
-            option.SetResourceReference(Control.BackgroundProperty, "TintBrush");
-            group.Children.Add(option);
-        }
-        return group;
+        displayedScale = theme.Scale;
+        width.IsEnabled = height.IsEnabled = zoom.IsEnabled = !locked;
+        sizeLockHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static Grid TwoColumns()

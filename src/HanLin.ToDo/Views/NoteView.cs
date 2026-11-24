@@ -22,6 +22,7 @@ internal sealed partial class NoteView : Border
     private readonly Grid layout;
     private readonly Button lockButton;
     private readonly FrameworkElement dragGrip;
+    private readonly FrameworkElement sizeGrip;
     private readonly Button completedButton;
     private readonly ScrollViewer taskScroll;
     private readonly StackPanel pending = new();
@@ -75,11 +76,11 @@ internal sealed partial class NoteView : Border
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         card.Child = layout;
 
-        var header = new DockPanel { LastChildFill = true, Height = 46, Margin = new Thickness(13, 0, 8, 0) };
+        var header = new DockPanel { LastChildFill = true, Height = 46, Margin = new Thickness(9, 0, 8, 0) };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(actions, Dock.Right);
         actions.Children.Add(Ui.Button("新建待办", () => NewRequested?.Invoke(), "plus"));
-        lockButton = Ui.Button("锁定位置", () => LockRequested?.Invoke(), "unlock");
+        lockButton = Ui.Button("锁定位置和尺寸", () => LockRequested?.Invoke(), "unlock");
         actions.Children.Add(lockButton);
         actions.Children.Add(Ui.Button("便签设置", () => SettingsRequested?.Invoke(), "settings"));
         header.Children.Add(actions);
@@ -88,8 +89,9 @@ internal sealed partial class NoteView : Border
         title.VerticalAlignment = VerticalAlignment.Center;
         var caption = new StackPanel { Orientation = Orientation.Horizontal };
         dragGrip = Ui.Glyph("grip");
+        dragGrip.Width = 12;
         dragGrip.VerticalAlignment = VerticalAlignment.Center;
-        dragGrip.Margin = new Thickness(0, 0, 5, 0);
+        dragGrip.Margin = new Thickness(0, 0, 3, 0);
         caption.Children.Add(dragGrip);
         caption.Children.Add(title);
         header.Children.Add(caption);
@@ -141,7 +143,7 @@ internal sealed partial class NoteView : Border
         notice.TextWrapping = TextWrapping.Wrap;
         notice.Visibility = Visibility.Collapsed;
         var footer = new DockPanel { LastChildFill = true, MinHeight = 27, Margin = new Thickness(14, 0, 6, 0) };
-        var sizeGrip = Ui.Glyph("resize");
+        sizeGrip = Ui.Glyph("resize");
         sizeGrip.VerticalAlignment = VerticalAlignment.Bottom;
         sizeGrip.Margin = new Thickness(4, 0, 0, 3);
         sizeGrip.ToolTip = "拖动调整便签大小";
@@ -206,7 +208,8 @@ internal sealed partial class NoteView : Border
         if (!initialized || previous.Locked != settings.Locked)
         {
             dragGrip.Visibility = settings.Locked ? Visibility.Hidden : Visibility.Visible;
-            string label = settings.Locked ? "位置已锁定，点击解锁" : "锁定位置";
+            sizeGrip.Visibility = settings.Locked ? Visibility.Collapsed : Visibility.Visible;
+            string label = settings.Locked ? "位置和尺寸已锁定，点击解锁" : "锁定位置和尺寸";
             lockButton.ToolTip = label;
             lockButton.AutomationName(label);
             var icon = Ui.Glyph(settings.Locked ? "lock" : "unlock");
@@ -238,11 +241,11 @@ internal sealed partial class NoteView : Border
 
         const double edgeBand = 7;
         var edges = ResizeEdge.None;
-        if (!IsLocked && point.X < left + edgeBand)
+        if (point.X < left + edgeBand)
             edges |= ResizeEdge.Left;
         if (point.X > right - edgeBand)
             edges |= ResizeEdge.Right;
-        if (!IsLocked && point.Y < top + edgeBand)
+        if (point.Y < top + edgeBand)
             edges |= ResizeEdge.Top;
         if (point.Y > bottom - edgeBand)
             edges |= ResizeEdge.Bottom;
@@ -252,6 +255,8 @@ internal sealed partial class NoteView : Border
     public bool TryGetWindowDrag(object? origin, Point point, out ResizeEdge edges)
     {
         edges = ResizeEdge.None;
+        if (IsLocked)
+            return false;
         bool inTitleBar = false;
         var element = origin as DependencyObject;
         while (element is not null)
@@ -263,7 +268,7 @@ internal sealed partial class NoteView : Border
             if (element == card)
             {
                 edges = ResizeEdgesAt(point);
-                return edges != ResizeEdge.None || (inTitleBar && !IsLocked);
+                return edges != ResizeEdge.None || inTitleBar;
             }
             element = element switch
             {

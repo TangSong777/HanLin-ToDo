@@ -67,11 +67,24 @@ public partial class App : Application
 
             Directory.CreateDirectory(directory);
             taskLocation = new TaskLocation(directory, commandLineOverride: alternate is not null);
-            storage = new PreferencesFile(Path.Combine(directory, "settings.json"));
+            string settingsPath = Path.Combine(directory, "settings.json");
+            bool firstRun = taskLocation.CanChoose && !File.Exists(settingsPath);
+            storage = new PreferencesFile(settingsPath);
             startup = new StartupEntry(alternate is null ? "HanLin-ToDo" : "HanLin-ToDo-" + identity,
                 alternate is null ? null : directory);
             preferences = storage.Read(out string? warning);
             warning = LoadTaskDirectory(warning);
+            if (firstRun && taskDirectoryReady)
+            {
+                try
+                {
+                    startup.Configure(true);
+                }
+                catch (Exception ex) when (IsExpected(ex))
+                {
+                    warning ??= "无法启用默认的登录自启，可在便签设置中开启。";
+                }
+            }
             Ui.SetTheme(preferences.Theme);
             note = new NoteView();
             note.Apply(preferences);
@@ -335,7 +348,7 @@ public partial class App : Application
         {
             try
             {
-                settingsWindow = new SettingsWindow(preferences.Theme, startup.Command is not null,
+                settingsWindow = new SettingsWindow(preferences, startup.Command is not null,
                     Path.GetDirectoryName(tasks.Path)!, taskLocation.CanChoose ? taskLocation.DefaultDirectory : null,
                     OpenTaskFile, ApplySettings);
                 settingsWindow.Closed += (_, _) => settingsWindow = null;
@@ -427,6 +440,7 @@ public partial class App : Application
 
     private bool ChangePreferences(NotePreferences next)
     {
+        next = preferences.PreserveLockedGeometry(next);
         try
         {
             storage.Save(next);
@@ -436,7 +450,7 @@ public partial class App : Application
             preferences = next;
             note.Apply(preferences);
             desktop?.Apply(preferences);
-            settingsWindow?.FollowWindowSize(preferences.Theme);
+            settingsWindow?.FollowWindowGeometry(preferences);
             note.ShowNotice(null);
             return true;
         }

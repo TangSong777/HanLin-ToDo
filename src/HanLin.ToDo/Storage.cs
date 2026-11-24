@@ -10,9 +10,9 @@ internal enum NoteTitleFont { YueHei, Body }
 
 internal sealed record NoteTheme
 {
-    public const int DefaultWidth = 370;
-    public const int DefaultHeight = 348;
-    public const int DefaultTextSize = 16;
+    public const int DefaultWidth = 236;
+    public const int DefaultHeight = 411;
+    public const int DefaultTextSize = 14;
     public const int DefaultRowPadding = 6;
     public const int MinimumScale = 75;
     public const int MaximumScale = 160;
@@ -23,7 +23,7 @@ internal sealed record NoteTheme
     public string Font { get; init; } = "Microsoft YaHei UI";
     public NoteTitleFont TitleFont { get; init; } = NoteTitleFont.YueHei;
     public int Size { get; init; } = DefaultTextSize;
-    public int Radius { get; init; } = 16;
+    public int Radius { get; init; } = 8;
     public int Padding { get; init; } = DefaultRowPadding;
     public int Width { get; init; } = DefaultWidth;
     public int Height { get; init; } = DefaultHeight;
@@ -67,6 +67,18 @@ internal sealed record NotePreferences
     public string? WorkingDirectory { get; init; }
     public bool LegacyTasksHandled { get; init; }
     public NoteTheme Theme { get; init; } = new();
+
+    public NotePreferences PreserveLockedGeometry(NotePreferences next)
+    {
+        if (!Locked || !next.Locked)
+            return next;
+        return next with
+        {
+            Left = Left,
+            Top = Top,
+            Theme = next.Theme with { Width = Theme.Width, Height = Theme.Height, Scale = Theme.Scale }
+        };
+    }
 }
 
 internal sealed class PreferencesFile(string path)
