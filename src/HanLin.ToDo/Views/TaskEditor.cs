@@ -28,6 +28,7 @@ internal sealed class TaskEditor : Border
     private Calendar? keyboardCalendar;
     private DateTime? dateBeforeKeyboardSelection;
     private bool invalidDate;
+    private string hintText = "";
 
     public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
         bool isCaptureWindow = false)
@@ -106,7 +107,7 @@ internal sealed class TaskEditor : Border
         {
             invalidDate = false;
             time.IsEnabled = date.SelectedDate.HasValue;
-            error.Visibility = Visibility.Collapsed;
+            ResetHint();
         }
         date.SelectedDateChanged += (_, _) =>
         {
@@ -148,7 +149,8 @@ internal sealed class TaskEditor : Border
             details.Style = (Style)Application.Current.FindResource("SoftDetailsExpander");
             cancelButton.Margin = new Thickness(0, 0, 6, 0);
             Child = CreateCaptureForm(fields, buttons);
-            title.ToolTip = "Tab 打开日历，方向键选日期，Enter 确认日期，再按 Enter 保存。";
+            hintText = "Tab 选日期，Enter 确认，再按 Enter 保存";
+            ResetHint();
             title.PreviewKeyDown += OpenKeyboardCalendar;
         }
         else
@@ -171,14 +173,20 @@ internal sealed class TaskEditor : Border
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
-        error.Margin = new Thickness(0, 0, 0, 7);
+        error.Margin = new Thickness(0, 0, 12, 0);
+        error.FontSize = 11;
+        error.VerticalAlignment = VerticalAlignment.Center;
         buttons.Margin = new Thickness(0);
-        var actions = new StackPanel();
-        actions.Children.Add(error);
-        actions.Children.Add(buttons);
+        buttons.VerticalAlignment = VerticalAlignment.Center;
+        var footerRow = new Grid();
+        footerRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        footerRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        footerRow.Children.Add(error);
+        Grid.SetColumn(buttons, 1);
+        footerRow.Children.Add(buttons);
         var footer = new Border
         {
-            Child = actions,
+            Child = footerRow,
             Padding = new Thickness(16, 9, 16, 11),
             BorderThickness = new Thickness(0, 1, 0, 0)
         };
@@ -305,7 +313,18 @@ internal sealed class TaskEditor : Border
         time.Reset();
         time.IsEnabled = false;
         invalidDate = false;
-        error.Visibility = Visibility.Collapsed;
+        ResetHint();
+    }
+
+    private void ResetHint()
+    {
+        if (hintText.Length == 0)
+        {
+            error.Visibility = Visibility.Collapsed;
+            return;
+        }
+        error.Text = hintText;
+        error.Visibility = Visibility.Visible;
     }
 
     private void ShowError(string message)
