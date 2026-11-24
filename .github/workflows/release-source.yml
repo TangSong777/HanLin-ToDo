@@ -1,0 +1,22 @@
+name: Stable release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions: {}
+
+jobs:
+  snapshot-release-source:
+    name: snapshot-release-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the source branch
+        env:
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "$GITHUB_HEAD_REF" != "snapshot" || "$PR_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+            echo "A stable release must come from this repository’s snapshot branch."
+            exit 1
+          fi
