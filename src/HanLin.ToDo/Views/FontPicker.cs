@@ -19,6 +19,7 @@ internal sealed class FontPicker : Border
     private readonly string[] labels;
     private readonly FontFamily[] families;
     private int selectedIndex;
+    private DateTime closedAt = DateTime.MinValue;
 
     public FontPicker(string[] labels, FontFamily[] families, int index)
     {
@@ -131,9 +132,13 @@ internal sealed class FontPicker : Border
             PopupAnimation = PopupAnimation.None,
             Focusable = false
         };
-        popup.Closed += (_, _) => Focus();
+        popup.Closed += (_, _) =>
+        {
+            closedAt = DateTime.UtcNow;
+            Focus();
+        };
 
-        MouseLeftButtonDown += (_, _) =>
+        MouseLeftButtonUp += (_, _) =>
         {
             Focus();
             Toggle();
@@ -170,9 +175,16 @@ internal sealed class FontPicker : Border
 
     private void Toggle()
     {
-        if (!popup.IsOpen)
-            frame.Width = ActualWidth;
-        popup.IsOpen = !popup.IsOpen;
+        if (popup.IsOpen)
+        {
+            popup.IsOpen = false;
+            return;
+        }
+        // A click on the picker while the popup is open closes it first; ignore that same click.
+        if ((DateTime.UtcNow - closedAt).TotalMilliseconds < 250)
+            return;
+        frame.Width = ActualWidth;
+        popup.IsOpen = true;
     }
 
     private void Select(int index)

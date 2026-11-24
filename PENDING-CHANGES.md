@@ -13,3 +13,4 @@
 - 2026-11-24 · 变更 · 打包脚本先结束正在运行的便签，替换后自动启动新版本 · 为什么：部署时不必手动关闭旧进程 · 影响：tools/Publish-Windows.ps1 新增 -SkipLaunch 开关
 - 2026-11-24 · 修复 · 打包脚本丢失 UTF-8 BOM 后把「桌面」按 GBK 解码，EXE 被部署到乱码目录，程序默认工作目录随之显示为 D:\妗岄潰\HanLin-ToDo\data · 为什么：PowerShell 5.1 对无 BOM 脚本按系统 ANSI 解码 · 影响：默认输出目录改用 [Environment]::GetFolderPath('Desktop') 拼接，脚本恢复 BOM，删除乱码目录并重新部署
 - 2026-11-24 · 变更 · 设置窗口的正文字体和标题字体下拉框改为自绘控件 · 为什么：系统 ComboBox 与便签整体风格不一致 · 影响：新增 Views/FontPicker.cs，SettingsWindow 改用 FontPicker
+- 2026-11-24 · 修复 · 字体下拉弹层点击后闪烁一下立即关闭 · 为什么：在 MouseLeftButtonDown 里打开 StaysOpen=false 的 Popup，当前按下的鼠标事件被 Popup 当作外部点击 · 影响：FontPicker 改为 MouseLeftButtonUp 打开，并忽略关闭后 250ms 内的同一次点击
