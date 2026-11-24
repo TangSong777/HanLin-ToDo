@@ -2,10 +2,12 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Threading;
+using Calendar = System.Windows.Controls.Calendar;
 
 namespace HanLin.ToDo;
 
@@ -19,9 +21,13 @@ internal sealed class TaskEditor : Border
     private readonly TaskDetailsEditor detailsEditor;
     private readonly Func<TodoDraft, string?> save;
     private readonly Action cancel;
+    private Calendar? keyboardCalendar;
+    private DateTime? dateBeforeKeyboardSelection;
+    private bool saveAfterCalendarCloses;
     private bool invalidDate;
 
-    public TaskEditor(TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save, Action cancel)
+    public TaskEditor(TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save, Action cancel,
+        bool keyboardDateShortcut = false)
     {
         this.save = save;
         this.cancel = cancel;
@@ -102,7 +108,20 @@ internal sealed class TaskEditor : Border
             if (!date.IsDropDownOpen)
                 RefreshDateInput();
         };
-        date.CalendarClosed += (_, _) => RefreshDateInput();
+        date.CalendarClosed += (_, _) =>
+        {
+            if (keyboardCalendar is { } calendar)
+            {
+                calendar.PreviewKeyDown -= OnKeyboardCalendarKey;
+                keyboardCalendar = null;
+            }
+            RefreshDateInput();
+            if (saveAfterCalendarCloses)
+            {
+                saveAfterCalendarCloses = false;
+                Commit();
+            }
+        };
         date.DateValidationError += (_, args) =>
         {
             args.ThrowException = false;
@@ -119,6 +138,11 @@ internal sealed class TaskEditor : Border
         buttons.Children.Add(Ui.Button("取消", cancel));
         buttons.Children.Add(Ui.Button("保存", Commit, primary: true));
         fields.Children.Add(buttons);
+        if (keyboardDateShortcut)
+        {
+            title.ToolTip = "Tab 打开日历，方向键选日期，Enter 保存。";
+            title.PreviewKeyDown += OpenKeyboardCalendar;
+        }
         KeyDown += OnKey;
     }
 
@@ -129,6 +153,43 @@ internal sealed class TaskEditor : Border
         if (title.IsVisible && !IsPickerOpen && title.Focus())
             title.SelectAll();
     }));
+
+    private void OpenKeyboardCalendar(object sender, KeyEventArgs args)
+    {
+        if (args.Key != Key.Tab || args.KeyboardDevice.Modifiers != ModifierKeys.None || IsPickerOpen)
+            return;
+
+        date.ApplyTemplate();
+        if (date.Template.FindName("PART_Popup", date) is not Popup { Child: Calendar calendar })
+            return;
+
+        dateBeforeKeyboardSelection = date.SelectedDate;
+        DateTime start = dateBeforeKeyboardSelection ?? DateTime.Today;
+        date.SelectedDate = start;
+        date.DisplayDate = start;
+        keyboardCalendar = calendar;
+        calendar.PreviewKeyDown += OnKeyboardCalendarKey;
+        args.Handled = true;
+        date.IsDropDownOpen = true;
+    }
+
+    private void OnKeyboardCalendarKey(object sender, KeyEventArgs args)
+    {
+        if (!date.IsDropDownOpen || args.KeyboardDevice.Modifiers != ModifierKeys.None)
+            return;
+
+        if (args.Key == Key.Escape)
+            date.SelectedDate = dateBeforeKeyboardSelection;
+        else if (args.Key == Key.Enter && keyboardCalendar?.DisplayMode == CalendarMode.Month)
+            saveAfterCalendarCloses = true;
+        else
+            return;
+
+        args.Handled = true;
+        date.IsDropDownOpen = false;
+        if (args.Key == Key.Escape)
+            title.Focus();
+    }
 
     private void OnKey(object sender, KeyEventArgs args)
     {
@@ -234,7 +295,7 @@ internal sealed class CaptureWindow : Window
             if (error is null)
                 Close();
             return error;
-        }, Close);
+        }, Close, keyboardDateShortcut: true);
         editor.Margin = new Thickness(10);
         Content = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         ContentRendered += (_, _) => editor.FocusTitle();

@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 using Point = System.Drawing.Point;
+using Rectangle = System.Drawing.Rectangle;
 
 namespace HanLin.ToDo;
 
@@ -17,7 +18,6 @@ internal sealed class DesktopSurface : IDisposable
     private readonly DispatcherTimer dragTimer;
     private NotePreferences preferences;
     private HwndSource? source;
-    private IntPtr parent;
     private Point? position;
     private Point dragStart;
     private Native.Rect originalBounds;
@@ -39,9 +39,9 @@ internal sealed class DesktopSurface : IDisposable
         };
         dragTimer.Tick += (_, _) =>
         {
-            if (view.IsMouseCaptured && Native.PrimaryButtonDown())
+            if (view.IsMouseCaptured)
                 MoveFromCursor();
-            else
+            if (!view.IsMouseCaptured || !Native.PrimaryButtonDown())
                 EndDrag();
         };
         view.LostMouseCapture += (_, _) =>
@@ -74,29 +74,31 @@ internal sealed class DesktopSurface : IDisposable
         if (!visible)
             EndDrag();
 
-        IntPtr host = Native.DesktopHost();
-        if (source is { IsDisposed: false } && (parent != host || !Native.IsWindow(source.Handle)))
+        if (source is { IsDisposed: false } && !Native.IsWindow(source.Handle))
             ResetHost();
-        if (host == IntPtr.Zero)
-            return;
 
         if (source is null || source.IsDisposed)
         {
             if (!visible)
                 return;
-            BuildHost(host);
+            BuildHost();
         }
         if (source is null || source.IsDisposed)
             return;
 
-        if (visible && Native.IsIconic(source.Handle))
-            Native.RestoreWindow(source.Handle, Native.ShowNoActivate);
-        if (Native.IsWindowVisible(source.Handle) != visible)
-            Native.SetWindowPos(source.Handle, IntPtr.Zero, 0, 0, 0, 0,
+        IntPtr window = source.Handle;
+        if (visible)
+        {
+            if (Native.IsIconic(window))
+                Native.RestoreWindow(window, Native.ShowNoActivate);
+            if (!dragging && !view.IsPickerOpen)
+                PositionWindow(position);
+            PlaceOnDesktop(window);
+        }
+        if (Native.IsWindowVisible(window) != visible)
+            Native.SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0,
                 Native.NoMove | Native.NoSize | Native.NoZOrder | Native.NoActivate
                 | (visible ? Native.ShowWindow : Native.HideWindow));
-        if (visible && !dragging && !view.IsPickerOpen)
-            PositionWindow(position);
     }
 
     public void EndDrag()
@@ -129,14 +131,13 @@ internal sealed class DesktopSurface : IDisposable
         savePlacement(preferences with { Left = window.Left, Top = window.Top, Theme = theme });
     }
 
-    private void BuildHost(IntPtr host)
+    private void BuildHost()
     {
-        // A desktop-owned popup can still compose independently on Explorer's raised desktop.
-        // Put it immediately above the icon host and below ordinary application windows.
+        // The top-level HWND owns its keyboard focus so WPF and TSF can compose text.
         var parameters = new HwndSourceParameters("HanLin-ToDo Desktop",
             NoteTheme.DefaultWidth + 2 * NoteView.ShadowMargin, NoteTheme.DefaultHeight + 2 * NoteView.ShadowMargin)
         {
-            ParentWindow = host,
+            ParentWindow = IntPtr.Zero,
             WindowStyle = Native.Popup,
             ExtendedWindowStyle = Native.ToolWindow,
             UsesPerPixelTransparency = true,
@@ -148,9 +149,19 @@ internal sealed class DesktopSurface : IDisposable
             if (!dragging)
                 PositionWindow(position);
         }));
-        parent = host;
         source.RootVisual = view;
-        PositionWindow(position);
+    }
+
+    private static void PlaceOnDesktop(IntPtr window)
+    {
+        // Insert immediately above the shell's icon host while staying in the normal Z-order band.
+        IntPtr desktop = Native.DesktopHost();
+        IntPtr predecessor = desktop == IntPtr.Zero ? Native.BottomWindow : Native.GetWindow(desktop, Native.PreviousWindow);
+        if (predecessor == window)
+            return;
+        if (desktop != IntPtr.Zero && (Native.GetExtendedStyle(predecessor) & Native.Topmost) != 0)
+            predecessor = IntPtr.Zero;
+        Native.SetWindowPos(window, predecessor, 0, 0, 0, 0, Native.NoMove | Native.NoSize | Native.NoActivate);
     }
 
     private void PositionWindow(Point? target, Point? pointer = null)
@@ -161,34 +172,54 @@ internal sealed class DesktopSurface : IDisposable
         var monitorPoint = pointer ?? target;
         var screen = monitorPoint is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen;
         var area = screen?.WorkingArea ?? Forms.SystemInformation.WorkingArea;
-        double scale = WindowScale(source.Handle);
-        int width = Math.Min(ToPixels(preferences.Theme.Width, scale), area.Width);
-        int height = Math.Min(ToPixels(preferences.Theme.Height, scale), area.Height);
+        IntPtr window = source.Handle;
+        NoteTheme theme = preferences.Theme;
+        double scale = WindowScale(window);
+        PlaceWindow(window, rect, BoundsInWorkArea(theme, target, area, scale));
+
+        // Crossing to another display can change the HWND DPI during the first move.
+        double newScale = WindowScale(window);
+        if (newScale != scale && Native.GetWindowRect(window, out var moved))
+            PlaceWindow(window, moved, BoundsInWorkArea(theme, target, area, newScale));
+    }
+
+    private static Native.Rect BoundsInWorkArea(NoteTheme theme, Point? target, Rectangle area, double scale)
+    {
+        int width = Math.Min(ToPixels(theme.Width, scale), area.Width);
+        int height = Math.Min(ToPixels(theme.Height, scale), area.Height);
         var point = target ?? new Point(area.Right - width - 18, area.Top + 20);
         int x = Math.Clamp(point.X, area.Left, Math.Max(area.Left, area.Right - width));
         int y = Math.Clamp(point.Y, area.Top, Math.Max(area.Top, area.Bottom - height));
-        PlaceWindow(source.Handle, rect, new Native.Rect(x, y, x + width, y + height));
+        return new Native.Rect(x, y, x + width, y + height);
     }
 
-    private void PlaceWindow(IntPtr handle, Native.Rect current, Native.Rect target)
+    private static void PlaceWindow(IntPtr window, Native.Rect current, Native.Rect target)
     {
-        IntPtr desktopPredecessor = Native.GetWindow(parent, Native.PreviousWindow);
-        bool keepOrder = dragging || desktopPredecessor == handle;
+        bool samePosition = target.Left == current.Left && target.Top == current.Top;
         bool sameSize = current.Width == target.Width && current.Height == target.Height;
-        if (keepOrder && sameSize && target.Left == current.Left && target.Top == current.Top)
+        if (samePosition && sameSize)
             return;
-        if ((Native.GetExtendedStyle(desktopPredecessor) & Native.Topmost) != 0)
-            desktopPredecessor = Native.NotTopmost;
-        Native.SetWindowPos(handle, desktopPredecessor, target.Left, target.Top, target.Width, target.Height,
-            Native.NoActivate | Native.NoOwnerZOrder | (sameSize ? Native.NoSize : 0U) | (keepOrder ? Native.NoZOrder : 0U));
+        Native.SetWindowPos(window, IntPtr.Zero, target.Left, target.Top, target.Width, target.Height,
+            Native.NoActivate | Native.NoZOrder | (samePosition ? Native.NoMove : 0U) | (sameSize ? Native.NoSize : 0U));
     }
 
-    private static IntPtr NoteMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    private IntPtr NoteMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (message != Native.MouseActivate)
-            return IntPtr.Zero;
-        handled = true;
-        return new IntPtr(Native.ActivateAndDeliver);
+        if (message == Native.MouseActivate)
+        {
+            handled = true;
+            return new IntPtr(Native.ActivateAndDeliver);
+        }
+        if (message == Native.ActivateMessage && (wParam.ToInt64() & 0xffff) != 0)
+        {
+            // Reapply the desktop layer after Windows raises the window to deliver input.
+            view.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (!disposed && source is { IsDisposed: false } active && active.Handle == window)
+                    PlaceOnDesktop(window);
+            }));
+        }
+        return IntPtr.Zero;
     }
 
     private void BeginDrag(object sender, MouseButtonEventArgs args)
@@ -274,7 +305,6 @@ internal sealed class DesktopSurface : IDisposable
             source.Dispose();
         }
         source = null;
-        parent = IntPtr.Zero;
     }
 
     public void Dispose()
@@ -289,7 +319,7 @@ internal static class Native
     public const int Popup = unchecked((int)0x80000000);
     public const int ToolWindow = 0x00000080;
     public const int Topmost = 0x00000008;
-    public static readonly IntPtr NotTopmost = new(-2);
+    public static readonly IntPtr BottomWindow = new(1);
     public const int PreviousWindow = 3;
     public const uint NoSize = 0x0001;
     public const uint NoMove = 0x0002;
@@ -297,9 +327,9 @@ internal static class Native
     public const uint NoActivate = 0x0010;
     public const uint ShowWindow = 0x0040;
     public const uint HideWindow = 0x0080;
-    public const uint NoOwnerZOrder = 0x0200;
     public const int ShowNoActivate = 4;
     public const int HotKeyMessage = 0x0312;
+    public const int ActivateMessage = 0x0006;
     public const int MouseActivate = 0x0021;
     public const int ActivateAndDeliver = 1;
 
@@ -315,7 +345,7 @@ internal static class Native
             if (HasDesktopView(worker))
                 return worker;
         }
-        return IntPtr.Zero;
+        return GetShellWindow();
     }
 
     private static bool HasDesktopView(IntPtr window) => window != IntPtr.Zero
@@ -344,6 +374,9 @@ internal static class Native
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? caption);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
 
     [DllImport("user32.dll")]
     public static extern bool IsWindow(IntPtr window);
