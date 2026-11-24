@@ -45,6 +45,8 @@ public partial class App : Application
     private Mutex? instance;
     private bool ownsInstance;
     private bool noteVisible = true;
+    private string displaySignature = "";
+    private DispatcherTimer? displayTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -73,6 +75,8 @@ public partial class App : Application
             startup = new StartupEntry(alternate is null ? "HanLin-ToDo" : "HanLin-ToDo-" + identity,
                 alternate is null ? null : directory);
             preferences = storage.Read(out string? warning);
+            displaySignature = DisplayLayout.Signature();
+            preferences = ApplyPlacement(preferences, displaySignature);
             warning = LoadTaskDirectory(warning);
             if (firstRun && taskDirectoryReady)
             {
@@ -104,12 +108,13 @@ public partial class App : Application
             note.RestoreRequested += RestoreTask;
             note.BatchDeleteRequested += DeleteTasks;
             note.ExportRequested += ExportTasks;
-            desktop = new DesktopSurface(note, preferences, next => ChangePreferences(next));
+            desktop = new DesktopSurface(note, preferences, SavePlacement);
             note.UpdateTasks(current);
             note.ShowNotice(warning);
             CreateTray();
             RegisterHotkey();
             RefreshDesktop();
+            SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             timer = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) =>
             {
                 ReloadTasks();
@@ -438,9 +443,10 @@ public partial class App : Application
         return "保存便签设置失败。";
     }
 
-    private bool ChangePreferences(NotePreferences next)
+    private bool ChangePreferences(NotePreferences next, bool keepLockedGeometry = true)
     {
-        next = preferences.PreserveLockedGeometry(next);
+        if (keepLockedGeometry)
+            next = preferences.PreserveLockedGeometry(next);
         try
         {
             storage.Save(next);
@@ -459,6 +465,64 @@ public partial class App : Application
             note.ShowNotice("保存便签设置失败。");
             return false;
         }
+    }
+
+    private void SavePlacement(NotePreferences next)
+    {
+        var placements = new Dictionary<string, NotePlacement>(next.Placements)
+        {
+            [displaySignature] = NotePlacement.From(next)
+        };
+        ChangePreferences(next with { Placements = placements });
+    }
+
+    private static NotePreferences ApplyPlacement(NotePreferences preferences, string signature)
+    {
+        if (!preferences.Placements.TryGetValue(signature, out var saved))
+            return preferences;
+        return preferences with
+        {
+            Left = saved.Left,
+            Top = saved.Top,
+            Theme = preferences.Theme with { Width = saved.Width, Height = saved.Height, Scale = saved.Scale }
+        };
+    }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        if (displayTimer is null)
+        {
+            displayTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(600)
+            };
+            displayTimer.Tick += ApplyDisplayLayout;
+        }
+        displayTimer.Stop();
+        displayTimer.Start();
+    }
+
+    private void ApplyDisplayLayout(object? sender, EventArgs e)
+    {
+        displayTimer?.Stop();
+        string next = DisplayLayout.Signature();
+        if (next == displaySignature)
+            return;
+        var placements = new Dictionary<string, NotePlacement>(preferences.Placements);
+        if (preferences.Left is not null && preferences.Top is not null)
+            placements[displaySignature] = NotePlacement.From(preferences);
+        displaySignature = next;
+        var applied = preferences with { Placements = placements };
+        if (placements.TryGetValue(next, out var saved))
+            applied = applied with
+            {
+                Left = saved.Left,
+                Top = saved.Top,
+                Theme = applied.Theme with { Width = saved.Width, Height = saved.Height, Scale = saved.Scale }
+            };
+        else
+            applied = applied with { Left = null, Top = null };
+        ChangePreferences(applied, keepLockedGeometry: false);
     }
 
     private string? Mutate(Func<TodoSnapshot> change)
@@ -537,6 +601,8 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         timer?.Stop();
+        displayTimer?.Stop();
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         launchWait?.Unregister(null);
         if (hotkey is { IsDisposed: false })
         {

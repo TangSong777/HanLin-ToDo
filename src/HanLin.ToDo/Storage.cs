@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -56,6 +57,24 @@ internal sealed record NoteTheme
         value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
 }
 
+internal sealed record NotePlacement
+{
+    public int Left { get; init; }
+    public int Top { get; init; }
+    public int Width { get; init; } = NoteTheme.DefaultWidth;
+    public int Height { get; init; } = NoteTheme.DefaultHeight;
+    public int Scale { get; init; } = 100;
+
+    public static NotePlacement From(NotePreferences preferences) => new()
+    {
+        Left = preferences.Left ?? 0,
+        Top = preferences.Top ?? 0,
+        Width = preferences.Theme.Width,
+        Height = preferences.Theme.Height,
+        Scale = preferences.Theme.Scale
+    };
+}
+
 internal sealed record NotePreferences
 {
     public int? Left { get; init; }
@@ -67,6 +86,7 @@ internal sealed record NotePreferences
     public string? WorkingDirectory { get; init; }
     public bool LegacyTasksHandled { get; init; }
     public NoteTheme Theme { get; init; } = new();
+    public Dictionary<string, NotePlacement> Placements { get; init; } = new();
 
     public NotePreferences PreserveLockedGeometry(NotePreferences next)
     {
@@ -94,6 +114,7 @@ internal sealed class PreferencesFile(string path)
             return preferences with
             {
                 Theme = (preferences.Theme ?? new()).Normalize(),
+                Placements = preferences.Placements ?? new(),
                 TaskView = TodoViews.Normalize(preferences.TaskView),
                 Sort = Enum.IsDefined(preferences.Sort) ? preferences.Sort : TaskSort.Due
             };
