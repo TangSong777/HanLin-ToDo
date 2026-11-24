@@ -16,9 +16,6 @@ namespace HanLin.ToDo;
 internal sealed class TaskDetailsEditor : StackPanel
 {
     private readonly TodoDetails original;
-    private readonly CheckBox pinned;
-    private readonly CheckBox today;
-    private readonly ComboBox list;
     private readonly ComboBox repeat;
     private readonly TextBox repeatInterval;
     private readonly DatePicker reminder;
@@ -42,33 +39,14 @@ internal sealed class TaskDetailsEditor : StackPanel
         new(TaskRepeat.Weekly, "每周"), new(TaskRepeat.Monthly, "每月"), new(TaskRepeat.Yearly, "每年")
     ];
 
-    public bool IsPickerOpen => reminder.IsDropDownOpen || list.IsDropDownOpen || repeat.IsDropDownOpen;
+    public bool IsPickerOpen => reminder.IsDropDownOpen || repeat.IsDropDownOpen;
 
-    public TaskDetailsEditor(TodoDetails details, TodoCatalog catalog)
+    public TaskDetailsEditor(TodoDetails details)
     {
         original = details;
         steps = [..details.Steps ?? []];
         attachments = [..details.Attachments ?? []];
         Margin = new Thickness(0, 5, 1, 1);
-
-        var flags = new WrapPanel();
-        pinned = Flag("置顶任务", details.Pinned);
-        today = Flag("加到今天", details.MyDay == DateOnly.FromDateTime(DateTime.Now));
-        flags.Children.Add(pinned);
-        flags.Children.Add(today);
-        Children.Add(flags);
-
-        list = new ComboBox
-        {
-            ItemsSource = new[] { new TodoList("", "收件箱") }.Concat(catalog.Lists),
-            DisplayMemberPath = nameof(TodoList.Name),
-            SelectedValuePath = nameof(TodoList.Id),
-            MinHeight = 27
-        };
-        list.SelectedValue = details.ListId ?? "";
-        if (list.SelectedIndex < 0) list.SelectedIndex = 0;
-        list.AutomationName("所属清单");
-        Field("清单", list);
 
         repeat = new ComboBox
         {
@@ -220,9 +198,6 @@ internal sealed class TaskDetailsEditor : StackPanel
             .Distinct(StringComparer.CurrentCultureIgnoreCase).ToArray();
         details = details with
         {
-            Pinned = pinned.IsChecked == true,
-            MyDay = today.IsChecked == true ? DateOnly.FromDateTime(DateTime.Now) : null,
-            ListId = list.SelectedValue as string,
             Repeat = cadence,
             RepeatInterval = interval,
             Reminder = remindAt,
@@ -339,13 +314,6 @@ internal sealed class TaskDetailsEditor : StackPanel
             return false;
         link = uri.AbsoluteUri;
         return true;
-    }
-
-    private static CheckBox Flag(string label, bool enabled)
-    {
-        var box = new CheckBox { Content = label, IsChecked = enabled, Margin = new Thickness(0, 1, 9, 1) };
-        box.SetResourceReference(Control.ForegroundProperty, "InkBrush");
-        return box;
     }
 
     private void Field(string label, UIElement field)

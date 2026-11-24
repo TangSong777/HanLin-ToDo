@@ -35,7 +35,6 @@ public partial class App : Application
     private DispatcherTimer? timer;
     private CaptureWindow? capture;
     private SettingsWindow? settingsWindow;
-    private ListsWindow? listsWindow;
     private Forms.NotifyIcon? tray;
     private TrayMenu? trayMenu;
     private Drawing.Icon? trayIcon;
@@ -82,16 +81,14 @@ public partial class App : Application
             note.CompletedRequested += () => ChangePreferences(preferences with { ShowCompleted = !preferences.ShowCompleted });
             note.DoneChanged += (item, done) => Mutate(() => tasks.SetDone(item, done));
             note.SaveEdit = (item, draft) => Mutate(() => tasks.Edit(item, draft));
-            note.AddTask = draft => Mutate(() => tasks.Add(draft));
+            note.AddTask = AddTask;
             note.ViewRequested += view => ChangePreferences(preferences with { TaskView = view });
             note.SortRequested += sort => ChangePreferences(preferences with { Sort = sort });
-            note.ListsRequested += ShowLists;
             note.DetailsRequested += (item, update) => Mutate(() => tasks.UpdateDetails(item, update));
             note.DuplicateRequested += item => Mutate(() => tasks.Duplicate(item));
             note.ReorderRequested += ReorderTasks;
             note.DeleteRequested += item => DeleteTasks([item]);
             note.RestoreRequested += RestoreTask;
-            note.BatchMoveRequested += MoveTasks;
             note.BatchDeleteRequested += DeleteTasks;
             note.ExportRequested += ExportTasks;
             desktop = new DesktopSurface(note, preferences, next => ChangePreferences(next));
@@ -192,7 +189,6 @@ public partial class App : Application
         trayIcon = new Drawing.Icon(stream, size.Width, size.Height);
         trayMenu = new TrayMenu();
         trayMenu.AddAction("新建待办", "plus", ShowCapture, "Ctrl+Alt+T");
-        trayMenu.AddAction("管理清单和便笺", "list", () => ShowLists(note.ActiveView));
         visibleMenu = trayMenu.AddAction("隐藏便签", "eye-off", () => SetNoteVisible(!noteVisible));
         trayMenu.AddAction("便签设置", "settings", ShowSettings);
         trayMenu.AddAction("打开任务文件", "file", OpenTaskFile);
@@ -221,8 +217,7 @@ public partial class App : Application
     {
         if (capture is null)
         {
-            var draft = new TodoDraft("", null, TodoViews.NewDetails(note.ActiveView, DateTime.Now));
-            capture = new CaptureWindow(preferences.Theme, draft, current.Catalog, task => Mutate(() => tasks.Add(task)));
+            capture = new CaptureWindow(preferences.Theme, AddTask);
             capture.Closed += (_, _) => capture = null;
             capture.Show();
             return;
@@ -230,33 +225,12 @@ public partial class App : Application
         capture.FocusEditor();
     }
 
-    private void ShowLists(string view)
+    private string? AddTask(TodoDraft draft)
     {
-        if (listsWindow is null)
-        {
-            listsWindow = new ListsWindow(preferences.Theme, current.Catalog, view, SaveList, RemoveList);
-            listsWindow.Closed += (_, _) => listsWindow = null;
-            listsWindow.Show();
-        }
-        listsWindow.Activate();
-    }
-
-    private string? SaveList(string? id, string name, string? group, string? memo)
-    {
-        string? error = Mutate(() => id == "" ? tasks.SaveListMemo(null, memo) : tasks.SaveList(id, name, group, memo));
-        if (error is null && id is null)
-        {
-            var added = current.Catalog.Lists.LastOrDefault();
-            if (added is not null) ChangePreferences(preferences with { TaskView = added.Id });
-        }
-        return error;
-    }
-
-    private string? RemoveList(string id)
-    {
-        string? error = Mutate(() => tasks.RemoveList(id));
-        if (error is null && preferences.TaskView == id)
-            ChangePreferences(preferences with { TaskView = TodoViews.Inbox });
+        string? error = Mutate(() => tasks.Add(draft));
+        if (error is null && current.Items.LastOrDefault() is { } added &&
+            !TodoViews.Includes(added, preferences.TaskView, DateTime.Now))
+            ChangePreferences(preferences with { TaskView = TodoViews.All });
         return error;
     }
 
@@ -270,15 +244,6 @@ public partial class App : Application
         {
             ChangePreferences(preferences with { Sort = previousSort });
             note.ShowNotice(error);
-        }
-    }
-
-    private void MoveTasks(IReadOnlyList<TodoItem> items, string? destination)
-    {
-        if (Mutate(() => tasks.MoveToList(items, destination)) is null)
-        {
-            note.EndSelection();
-            note.ShowNotice($"已移动 {items.Count} 项任务。");
         }
     }
 
@@ -397,8 +362,8 @@ public partial class App : Application
         }
         var replacement = TaskLocation.FileIn(directory);
         bool switching = !string.Equals(tasks.Path, replacement.Path, StringComparison.OrdinalIgnoreCase);
-        if (switching && (note.IsEditingTask || capture is not null || listsWindow is not null))
-            return "请先保存或取消正在编辑的任务或清单，再切换工作目录。";
+        if (switching && (note.IsEditingTask || capture is not null))
+            return "请先保存或取消正在编辑的任务，再切换工作目录。";
 
         TodoSnapshot? replacementSnapshot = null;
         if (switching || !taskDirectoryReady || !Directory.Exists(directory))

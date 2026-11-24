@@ -358,10 +358,9 @@ internal sealed partial class NoteView : Border
         if (editor is not null && !remaining.Contains(ownRow) && !(showFinished && finished.Contains(ownRow)))
             pending.Children.Add(editor);
 
-        int matchingMemos = query.Length == 0 ? 0 : RenderMatchingMemos(query);
-        taskCount.Text = query.Length > 0 || view == TodoViews.Completed ? $"{visible.Length + matchingMemos} 项" : $"{remaining.Length} 项";
+        taskCount.Text = query.Length > 0 || view == TodoViews.Completed ? $"{visible.Length} 项" : $"{remaining.Length} 项";
         taskCount.Visibility = Visibility.Visible;
-        if (remaining.Length == 0 && finished.Length == 0 && matchingMemos == 0 && editor is null)
+        if (visible.Length == 0 && editor is null)
         {
             var empty = Ui.Text(query.Length == 0 ? "这里还没有任务" : "没有找到匹配的任务", 14, "MutedBrush");
             empty.Margin = new Thickness(6, 12, 6, 10);
@@ -383,12 +382,10 @@ internal sealed partial class NoteView : Border
 
     private FrameworkElement MakeRow(TodoItem item)
     {
-        var grid = new Grid { Margin = new Thickness(0, settings.Theme.Padding, 0, settings.Theme.Padding) };
+        var grid = new Grid { MinHeight = 30, Margin = new Thickness(0, settings.Theme.Padding, 0, settings.Theme.Padding) };
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(22) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) });
-        grid.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
 
         var handle = CanReorder ? CreateTaskHandle(item) : null;
         if (handle is not null)
@@ -443,22 +440,6 @@ internal sealed partial class NoteView : Border
             text.Children.Add(extra);
         }
 
-        var pin = Ui.Button((item.Details.Pinned ? "取消置顶 " : "置顶 ") + item.Title, () => TogglePin(item), "pin");
-        pin.Width = 28;
-        pin.VerticalAlignment = VerticalAlignment.Center;
-        if (item.Details.Pinned)
-        {
-            pin.SetResourceReference(Control.BackgroundProperty, "TintBrush");
-            if (pin.Content is System.Windows.Shapes.Path glyph)
-                glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "OverdueBrush");
-        }
-        Grid.SetColumn(pin, 3);
-        grid.Children.Add(pin);
-        var edit = Ui.Button("编辑 " + item.Title, () => BeginEdit(item), "pencil");
-        edit.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(edit, 4);
-        grid.Children.Add(edit);
-
         var feedback = new Border { CornerRadius = new CornerRadius(5), Opacity = 0, IsHitTestVisible = false };
         feedback.SetResourceReference(BackgroundProperty, "TintBrush");
         var rowContent = new Grid();
@@ -486,7 +467,7 @@ internal sealed partial class NoteView : Border
     private void BeginEdit(TodoItem item)
     {
         editTarget = item;
-        editor = new TaskEditor(new(item.Title, item.Due, item.Details), snapshot.Catalog, draft =>
+        editor = new TaskEditor(new(item.Title, item.Due, item.Details), draft =>
         {
             string? error = SaveEdit?.Invoke(item, draft);
             if (error is null)

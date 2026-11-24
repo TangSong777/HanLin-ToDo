@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 namespace HanLin.ToDo;
 
 internal enum TaskRepeat { None, Daily, Weekdays, Weekly, Monthly, Yearly }
-internal enum TaskSort { Due = 0, Title = 2, Newest = 3, Manual = 4, Today = 5 }
+internal enum TaskSort { Due = 0, Title = 2, Newest = 3, Manual = 4 }
 
 internal readonly record struct TodoDeadline(DateOnly Date, TimeOnly? Time = null)
 {
@@ -43,6 +43,7 @@ internal readonly record struct TodoDeadline(DateOnly Date, TimeOnly? Time = nul
 }
 
 internal sealed record TodoStep(string Title, bool Done);
+// Older Markdown files store list definitions and their notes in the workspace comment.
 internal sealed record TodoList(string Id, string Name, string? Group = null, string? Memo = null);
 internal sealed record DeletedTodo(string Id, string Title, string Line, string? BatchId = null);
 
@@ -84,49 +85,37 @@ internal sealed record TodoSnapshot(string Text, IReadOnlyList<TodoItem> Items)
 internal static class TodoViews
 {
     public const string All = "all";
-    public const string Inbox = "inbox";
-    public const string Today = "today";
     public const string Pinned = "pinned";
     public const string Planned = "planned";
     public const string Overdue = "overdue";
     public const string Completed = "completed";
     public const string Trash = "trash";
 
-    public static string? ListId(string view) => Guid.TryParseExact(view, "N", out _) ? view : null;
-
-    public static string Label(string view, TodoCatalog catalog) => view switch
+    public static string Normalize(string? view) => view switch
     {
-        Inbox => "收件箱",
-        Today => "今天",
+        "important" => Pinned,
+        Pinned or Planned or Overdue or Completed or Trash => view,
+        _ => All
+    };
+
+    public static string Label(string view) => view switch
+    {
         Pinned => "置顶",
-        Planned => "计划",
+        Planned => "有日期或提醒",
         Overdue => "逾期",
         Completed => "已完成",
         Trash => "回收站",
-        _ => catalog.Lists.FirstOrDefault(list => list.Id == view)?.Name ?? "全部"
+        _ => "全部"
     };
-
-    public static TodoDetails NewDetails(string view, DateTime now) => new()
-    {
-        ListId = ListId(view),
-        Pinned = view == Pinned,
-        MyDay = view == Today ? DateOnly.FromDateTime(now) : null
-    };
-
-    public static bool IsToday(TodoItem item, DateTime now) =>
-        item.Details.MyDay == DateOnly.FromDateTime(now) || item.Due?.Date == DateOnly.FromDateTime(now);
 
     public static bool Includes(TodoItem item, string view, DateTime now) => view switch
     {
-        Today => IsToday(item, now),
         Pinned => item.Details.Pinned,
         Planned => item.Due is not null || item.Details.Reminder is not null,
         Overdue => !item.Done && item.Due is { } due && due.IsOverdue(now),
         Completed => item.Done,
-        Inbox => item.Details.ListId is null,
         Trash => false,
-        All => true,
-        _ => item.Details.ListId == view
+        _ => true
     };
 
     public static bool Matches(TodoItem item, string query)
@@ -146,7 +135,6 @@ internal static class TodoViews
         {
             TaskSort.Title => pinnedFirst.ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase),
             TaskSort.Newest => pinnedFirst.ThenByDescending(item => item.Details.Created).ThenByDescending(item => item.Offset),
-            TaskSort.Today => pinnedFirst.ThenByDescending(item => IsToday(item, DateTime.Now)).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
             TaskSort.Manual => pinnedFirst,
             _ => pinnedFirst.ThenBy(item => item.Due?.SortAt ?? item.Details.Reminder ?? DateTime.MaxValue)
         };
@@ -175,7 +163,7 @@ internal sealed partial class TaskFile(string path)
     public TodoSnapshot Add(TodoDraft draft)
     {
         var snapshot = Read();
-        var details = Normalize(draft.Details, draft.Due, snapshot.Catalog) with
+        var details = Normalize(draft.Details, draft.Due) with
         {
             Id = NewId(), Created = DateTime.Now, ReminderSent = false, NextId = null
         };
@@ -186,7 +174,7 @@ internal sealed partial class TaskFile(string path)
     {
         var snapshot = Read();
         var item = FindCurrent(snapshot, expected);
-        var details = Normalize(draft.Details, draft.Due, snapshot.Catalog) with
+        var details = Normalize(draft.Details, draft.Due) with
         {
             Id = item.Details.Id ?? NewId(),
             Created = item.Details.Created,
@@ -203,7 +191,7 @@ internal sealed partial class TaskFile(string path)
     {
         var snapshot = Read();
         var item = FindCurrent(snapshot, expected);
-        var details = Normalize(update(item.Details), item.Due, snapshot.Catalog) with { Id = item.Details.Id ?? NewId() };
+        var details = Normalize(update(item.Details), item.Due) with { Id = item.Details.Id ?? NewId() };
         return Write(snapshot.Text, ReplaceItem(snapshot.Text, item, item.Line[..item.ContentEnd] + SerializeDetails(details)));
     }
 
@@ -273,21 +261,6 @@ internal sealed partial class TaskFile(string path)
         return Write(snapshot.Text, text);
     }
 
-    public TodoSnapshot MoveToList(IReadOnlyList<TodoItem> selections, string? listId)
-    {
-        var snapshot = Read();
-        string? target = snapshot.Catalog.Lists.Any(list => list.Id == listId) ? listId : null;
-        string text = snapshot.Text;
-        foreach (var item in FindSelections(snapshot, selections))
-        {
-            if (item.Details.ListId == target)
-                continue;
-            var details = item.Details with { ListId = target, Id = item.Details.Id ?? NewId() };
-            text = ReplaceItem(text, item, item.Line[..item.ContentEnd] + SerializeDetails(details));
-        }
-        return Write(snapshot.Text, text);
-    }
-
     public TodoSnapshot Delete(IReadOnlyList<TodoItem> selections, string deletionId)
     {
         var snapshot = Read();
@@ -321,7 +294,7 @@ internal sealed partial class TaskFile(string path)
             string line = entry.Line;
             if (ParseItem(MarkdownTask().Match(line)) is { } item)
             {
-                var details = Normalize(item.Details, item.Due, snapshot.Catalog);
+                var details = Normalize(item.Details, item.Due);
                 if (details.Id is { } id && !usedIds.Add(id))
                     details = details with { Id = NewId(), NextId = null };
                 if (details != item.Details)
@@ -331,53 +304,6 @@ internal sealed partial class TaskFile(string path)
         }
         var catalog = snapshot.Catalog with { Deleted = snapshot.Catalog.Deleted.Where(entry => !IsSelected(entry)).ToArray() };
         return Write(snapshot.Text, PutCatalog(text, catalog));
-    }
-
-    public TodoSnapshot SaveList(string? id, string name, string? group, string? memo)
-    {
-        var snapshot = Read();
-        if (snapshot.Catalog.Lists.Any(list => list.Id != id && string.Equals(list.Name, name, StringComparison.CurrentCultureIgnoreCase)))
-            throw new IOException("任务清单已存在同名项。");
-        var lists = snapshot.Catalog.Lists.ToList();
-        int index = lists.FindIndex(list => list.Id == id);
-        if (id is null)
-            lists.Add(new(NewId(), name, group, memo));
-        else if (index >= 0)
-            lists[index] = lists[index] with { Name = name, Group = group, Memo = memo };
-        else
-            throw new IOException("任务清单已被移除。");
-        return Write(snapshot.Text, PutCatalog(snapshot.Text, snapshot.Catalog with { Lists = lists.ToArray() }));
-    }
-
-    public TodoSnapshot RemoveList(string id)
-    {
-        var snapshot = Read();
-        string text = snapshot.Text;
-        foreach (var item in snapshot.Items.Where(item => item.Details.ListId == id).OrderByDescending(item => item.Offset))
-            text = ReplaceItem(text, item, item.Line[..item.ContentEnd] + SerializeDetails(item.Details with { ListId = null }));
-        var removed = snapshot.Catalog.Lists.FirstOrDefault(list => list.Id == id);
-        string? memo = snapshot.Catalog.InboxMemo;
-        if (!string.IsNullOrWhiteSpace(removed?.Memo))
-            memo = string.Join("\r\n\r\n", new[] { memo, "## " + removed.Name + "\r\n" + removed.Memo }.Where(part => !string.IsNullOrWhiteSpace(part)));
-        var catalog = snapshot.Catalog with
-        {
-            Lists = snapshot.Catalog.Lists.Where(list => list.Id != id).ToArray(),
-            InboxMemo = memo
-        };
-        return Write(snapshot.Text, PutCatalog(text, catalog));
-    }
-
-    public TodoSnapshot SaveListMemo(string? listId, string? memo)
-    {
-        var snapshot = Read();
-        var catalog = snapshot.Catalog;
-        if (listId is null)
-            catalog = catalog with { InboxMemo = memo };
-        else if (catalog.Lists.Any(list => list.Id == listId))
-            catalog = catalog with { Lists = catalog.Lists.Select(list => list.Id == listId ? list with { Memo = memo } : list).ToArray() };
-        else
-            throw new IOException("任务清单已被移除。");
-        return Write(snapshot.Text, PutCatalog(snapshot.Text, catalog));
     }
 
     public (TodoSnapshot Snapshot, IReadOnlyList<string> Titles) ClaimReminders(DateTime now)
@@ -400,12 +326,11 @@ internal sealed partial class TaskFile(string path)
         using var stream = new FileStream(Path, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
     }
 
-    private static TodoDetails Normalize(TodoDetails input, TodoDeadline? due, TodoCatalog catalog)
+    private static TodoDetails Normalize(TodoDetails input, TodoDeadline? due)
     {
         var repeat = due is not null && Enum.IsDefined(input.Repeat) ? input.Repeat : TaskRepeat.None;
         return input with
         {
-            ListId = catalog.Lists.Any(list => list.Id == input.ListId) ? input.ListId : null,
             Repeat = repeat,
             RepeatDay = repeat == TaskRepeat.None ? null : input.RepeatDay,
             RepeatInterval = repeat is TaskRepeat.None or TaskRepeat.Weekdays || input.RepeatInterval <= 1

@@ -82,7 +82,7 @@ internal sealed class PreferencesFile(string path)
             return preferences with
             {
                 Theme = (preferences.Theme ?? new()).Normalize(),
-                TaskView = preferences.TaskView == "important" ? TodoViews.Pinned : preferences.TaskView,
+                TaskView = TodoViews.Normalize(preferences.TaskView),
                 Sort = Enum.IsDefined(preferences.Sort) ? preferences.Sort : TaskSort.Due
             };
         }

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -33,31 +32,26 @@ internal sealed partial class NoteView
     public Func<TodoDraft, string?>? AddTask { get; set; }
     public event Action<string>? ViewRequested;
     public event Action<TaskSort>? SortRequested;
-    public event Action<string>? ListsRequested;
     public event Action<TodoItem, Func<TodoDetails, TodoDetails>>? DetailsRequested;
     public event Action<TodoItem>? DuplicateRequested;
     public event Action<IReadOnlyList<TodoItem>>? ReorderRequested;
     public event Action<TodoItem>? DeleteRequested;
     public event Action<string>? RestoreRequested;
-    public event Action<IReadOnlyList<TodoItem>, string?>? BatchMoveRequested;
     public event Action<IReadOnlyList<TodoItem>>? BatchDeleteRequested;
     public event Action<string, IReadOnlyList<TodoItem>>? ExportRequested;
 
-    private static readonly (string Key, string Label)[] BuiltInViews =
+    private static readonly string[] FilterViews =
     [
-        (TodoViews.All, "全部"), (TodoViews.Inbox, "收件箱"), (TodoViews.Today, "今天"),
-        (TodoViews.Pinned, "置顶"), (TodoViews.Planned, "计划"), (TodoViews.Overdue, "逾期"), (TodoViews.Completed, "已完成")
+        TodoViews.All, TodoViews.Pinned, TodoViews.Planned, TodoViews.Overdue, TodoViews.Completed
     ];
 
     private static readonly (TaskSort Mode, string Label)[] SortChoices =
     [
         (TaskSort.Due, "截止日期"), (TaskSort.Title, "任务名称"),
-        (TaskSort.Newest, "最新创建"), (TaskSort.Today, "今天优先"), (TaskSort.Manual, "手动顺序")
+        (TaskSort.Newest, "最新创建"), (TaskSort.Manual, "手动顺序")
     ];
 
-    public string ActiveView => BuiltInViews.Any(view => view.Key == settings.TaskView) ||
-        settings.TaskView == TodoViews.Trash || snapshot.Catalog.Lists.Any(item => item.Id == settings.TaskView)
-        ? settings.TaskView : TodoViews.All;
+    private string ActiveView => settings.TaskView;
     private string SearchQuery => searchInput.Text.Trim();
 
     private StackPanel CreateTaskInput()
@@ -193,7 +187,7 @@ internal sealed partial class NoteView
     private StackPanel CreateTaskNavigation()
     {
         var bar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        viewButton = Ui.Button("切换清单", ShowViews);
+        viewButton = Ui.Button("筛选待办", ShowViews);
         viewButton.Padding = new Thickness(4, 1, 4, 1);
         viewButton.MinHeight = 25;
         var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -221,10 +215,10 @@ internal sealed partial class NoteView
 
     private void RefreshTaskNavigation()
     {
-        string label = selecting ? $"已选 {selected.Count} 项" : TodoViews.Label(ActiveView, snapshot.Catalog);
+        string label = selecting ? $"已选 {selected.Count} 项" : TodoViews.Label(ActiveView);
         viewLabel.Text = label;
-        viewButton.ToolTip = selecting ? "批量操作" : "当前清单 · " + label;
-        viewButton.AutomationName(selecting ? "批量操作" : "切换清单");
+        viewButton.ToolTip = selecting ? "批量操作" : "筛选待办 · " + label;
+        viewButton.AutomationName(selecting ? "批量操作" : "筛选待办");
         if (undoId is not null && !snapshot.Catalog.Deleted.Any(task => task.Id == undoId || task.BatchId == undoId))
             ShowUndo(null);
     }
@@ -250,17 +244,12 @@ internal sealed partial class NoteView
             }
             due = new TodoDeadline(DateOnly.FromDateTime(day), time);
         }
-        string context = ActiveView;
-        var now = DateTime.Now;
-        if (AddTask?.Invoke(new TodoDraft(title, due, TodoViews.NewDetails(context, now))) is not null)
+        if (AddTask?.Invoke(new TodoDraft(title, due, new())) is not null)
             return;
         quickInput.Clear();
         ClearQuickDeadline();
         if (SearchQuery.Length > 0)
             CloseSearch();
-        if (context is TodoViews.Completed or TodoViews.Trash || context == TodoViews.Planned && due is null ||
-            context == TodoViews.Overdue && due?.IsOverdue(now) != true)
-            ViewRequested?.Invoke(TodoViews.All);
         quickInput.Focus();
     }
 
@@ -304,37 +293,14 @@ internal sealed partial class NoteView
             menu.IsOpen = true;
             return;
         }
-        void AddView(ItemCollection collection, string key, string label) => collection.Add(Menu(label, () =>
+        void AddView(string key) => menu.Items.Add(Menu(TodoViews.Label(key), () =>
         {
             if (SearchQuery.Length > 0) CloseSearch();
             ViewRequested?.Invoke(key);
         }, ActiveView == key));
-        foreach (var (key, label) in BuiltInViews)
-            AddView(menu.Items, key, label);
+        foreach (string view in FilterViews)
+            AddView(view);
         menu.Items.Add(MenuDivider());
-        foreach (var group in snapshot.Catalog.Lists.GroupBy(item => item.Group))
-        {
-            var section = menu.Items;
-            if (!string.IsNullOrEmpty(group.Key))
-            {
-                var branch = MenuBranch(group.Key, "folder");
-                menu.Items.Add(branch);
-                section = branch.Items;
-            }
-            foreach (var item in group)
-                AddView(section, item.Id, item.Name);
-        }
-        menu.Items.Add(Menu("管理清单和便笺", () => ListsRequested?.Invoke(ActiveView), icon: "folder"));
-        if (ActiveView == TodoViews.Today)
-        {
-            var suggestions = MenuBranch("今日建议", "calendar");
-            foreach (var item in snapshot.Items.Where(item => !item.Done && !TodoViews.IsToday(item, DateTime.Now))
-                .OrderByDescending(item => item.Details.Pinned).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue).Take(8))
-                suggestions.Items.Add(Menu(item.Title, () => DetailsRequested?.Invoke(item,
-                    details => details with { MyDay = DateOnly.FromDateTime(DateTime.Now) })));
-            suggestions.IsEnabled = suggestions.Items.Count > 0;
-            menu.Items.Add(suggestions);
-        }
         var sorting = MenuBranch("排序", "dots");
         foreach (var (kind, label) in SortChoices)
             sorting.Items.Add(Menu(label, () => SortRequested?.Invoke(kind), settings.Sort == kind));
@@ -343,10 +309,10 @@ internal sealed partial class NoteView
         {
             menu.Items.Add(Menu("批量选择", () => { selecting = true; Render(); }));
             menu.Items.Add(Menu("导出当前任务", () => ExportRequested?.Invoke(
-                SearchQuery.Length > 0 ? "搜索结果" : TodoViews.Label(ActiveView, snapshot.Catalog), VisibleTasks())));
+                SearchQuery.Length > 0 ? "搜索结果" : TodoViews.Label(ActiveView), VisibleTasks())));
         }
         menu.Items.Add(MenuDivider());
-        AddView(menu.Items, TodoViews.Trash, "回收站");
+        AddView(TodoViews.Trash);
         menu.IsOpen = true;
     }
 
@@ -355,33 +321,14 @@ internal sealed partial class NoteView
         menu.Items.Clear();
         menu.Items.Add(Menu("编辑任务", () => BeginEdit(item), icon: "pencil"));
         menu.Items.Add(Menu(item.Details.Pinned ? "取消置顶" : "置顶任务", () => TogglePin(item), icon: "pin"));
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        menu.Items.Add(Menu(item.Details.MyDay == today ? "移出今日计划" : "加入今日计划", () =>
-            DetailsRequested?.Invoke(item, details => details with { MyDay = details.MyDay == today ? null : today }), icon: "calendar"));
-        var move = MenuBranch("移到清单", "folder");
-        move.Items.Add(Menu("收件箱", () => MoveToList(item, null), item.Details.ListId is null));
-        foreach (var list in snapshot.Catalog.Lists)
-            move.Items.Add(Menu(list.Name, () => MoveToList(item, list.Id), item.Details.ListId == list.Id));
-        menu.Items.Add(move);
-        menu.Items.Add(Menu("今天截止", () => ChangeDue(item, new TodoDeadline(DateOnly.FromDateTime(DateTime.Today)))));
-        menu.Items.Add(Menu("明天截止", () => ChangeDue(item, new TodoDeadline(DateOnly.FromDateTime(DateTime.Today.AddDays(1))))));
-        if (item.Due is not null)
-            menu.Items.Add(Menu("清除截止日期", () => ChangeDue(item, null)));
         menu.Items.Add(Menu("复制任务", () => DuplicateRequested?.Invoke(item), icon: "copy"));
-        if (CanReorder)
-        {
-            menu.Items.Add(Menu("上移", () => MoveTaskBy(item, -1)));
-            menu.Items.Add(Menu("下移", () => MoveTaskBy(item, 1)));
-        }
         menu.Items.Add(MenuDivider());
         var remove = Menu("移到回收站", () => DeleteRequested?.Invoke(item), icon: "trash");
         remove.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
         menu.Items.Add(remove);
     }
 
-    private void ChangeDue(TodoItem item, TodoDeadline? due) => SaveEdit?.Invoke(item, new TodoDraft(item.Title, due, item.Details));
     private void TogglePin(TodoItem item) => DetailsRequested?.Invoke(item, details => details with { Pinned = !details.Pinned });
-    private void MoveToList(TodoItem item, string? id) => DetailsRequested?.Invoke(item, details => details with { ListId = id });
 
     private Border CreateUndoToast()
     {
@@ -462,21 +409,6 @@ internal sealed partial class NoteView
             : TodoViews.Includes(item, view, lastRender)), settings.Sort).ToArray();
     }
 
-    private int RenderMatchingMemos(string query)
-    {
-        int count = 0;
-        foreach (var entry in snapshot.Catalog.Lists.Prepend(new TodoList(TodoViews.Inbox, "收件箱", Memo: snapshot.Catalog.InboxMemo)))
-        {
-            if (entry.Memo?.Contains(query, StringComparison.CurrentCultureIgnoreCase) != true)
-                continue;
-            var open = Ui.Button("便笺 · " + entry.Name, () => ListsRequested?.Invoke(entry.Id));
-            open.HorizontalContentAlignment = HorizontalAlignment.Left;
-            pending.Children.Add(open);
-            ++count;
-        }
-        return count;
-    }
-
     private void SetRowSelectionOrDone(TodoItem item, bool enabled)
     {
         if (!selecting)
@@ -506,23 +438,13 @@ internal sealed partial class NoteView
             Render();
         }));
         if (selected.Count > 0)
-        {
-            var move = MenuBranch("移动选中的任务", "folder");
-            move.Items.Add(Menu("收件箱", () => BatchMoveRequested?.Invoke(selected.ToArray(), null)));
-            foreach (var list in snapshot.Catalog.Lists)
-                move.Items.Add(Menu(list.Name, () => BatchMoveRequested?.Invoke(selected.ToArray(), list.Id)));
-            menu.Items.Add(move);
             menu.Items.Add(Menu($"将 {selected.Count} 项移到回收站", () => BatchDeleteRequested?.Invoke(selected.ToArray())));
-        }
         menu.Items.Add(Menu("结束选择", EndSelection));
     }
 
     private string TaskSummary(TodoItem item)
     {
         var parts = new List<string>();
-        if (item.Details.ListId is { } id && id != ActiveView &&
-            snapshot.Catalog.Lists.FirstOrDefault(entry => entry.Id == id) is { } list) parts.Add(list.Name);
-        if (item.Details.MyDay == DateOnly.FromDateTime(lastRender)) parts.Add("今日");
         if (item.Details.Steps is { Length: > 0 } steps) parts.Add($"{steps.Count(step => step.Done)}/{steps.Length} 步");
         if (item.Details.Reminder is { } reminder) parts.Add("提醒 " + reminder.ToString("MM/dd HH:mm", CultureInfo.InvariantCulture));
         if (item.Details.Repeat != TaskRepeat.None) parts.Add("重复");

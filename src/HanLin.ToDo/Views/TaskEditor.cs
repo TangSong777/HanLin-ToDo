@@ -26,7 +26,7 @@ internal sealed class TaskEditor : Border
     private bool saveAfterCalendarCloses;
     private bool invalidDate;
 
-    public TaskEditor(TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save, Action cancel,
+    public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
         bool keyboardDateShortcut = false)
     {
         this.save = save;
@@ -82,7 +82,7 @@ internal sealed class TaskEditor : Border
         schedule.Children.Add(time);
         fields.Children.Add(schedule);
 
-        detailsEditor = new TaskDetailsEditor(draft.Details, catalog);
+        detailsEditor = new TaskDetailsEditor(draft.Details);
         var details = new Expander
         {
             Header = Ui.Heading("任务详情", 13),
@@ -274,7 +274,7 @@ internal sealed class CaptureWindow : Window
 {
     private readonly TaskEditor editor;
 
-    public CaptureWindow(NoteTheme theme, TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save)
+    public CaptureWindow(NoteTheme theme, Func<TodoDraft, string?> save)
     {
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 新建待办";
@@ -289,7 +289,7 @@ internal sealed class CaptureWindow : Window
         ShowInTaskbar = false;
         Topmost = true;
         SetResourceReference(BackgroundProperty, "SurfaceBrush");
-        editor = new TaskEditor(draft, catalog, task =>
+        editor = new TaskEditor(new TodoDraft("", null, new()), task =>
         {
             string? error = save(task);
             if (error is null)
