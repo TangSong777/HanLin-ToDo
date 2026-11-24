@@ -17,7 +17,7 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="Button">
-          <Grid>
+          <Grid Background="Transparent">
             <Border CornerRadius="7" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
             <Border x:Name="Hover" CornerRadius="7" Background="{DynamicResource HoverBrush}" Opacity="0" IsHitTestVisible="False"/>
@@ -30,28 +30,6 @@
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Hover" Property="Opacity" Value="1"/>
             </Trigger>
-            <MultiDataTrigger>
-              <MultiDataTrigger.Conditions>
-                <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
-                <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}" Value="True"/>
-              </MultiDataTrigger.Conditions>
-              <MultiDataTrigger.EnterActions>
-                <BeginStoryboard>
-                  <Storyboard>
-                    <DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity"
-                                     From="0" To="1" Duration="0:0:0.11" FillBehavior="Stop"/>
-                  </Storyboard>
-                </BeginStoryboard>
-              </MultiDataTrigger.EnterActions>
-              <MultiDataTrigger.ExitActions>
-                <BeginStoryboard>
-                  <Storyboard>
-                    <DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity"
-                                     From="1" To="0" Duration="0:0:0.13" FillBehavior="Stop"/>
-                  </Storyboard>
-                </BeginStoryboard>
-              </MultiDataTrigger.ExitActions>
-            </MultiDataTrigger>
             <Trigger Property="Tag" Value="Primary">
               <Setter TargetName="Hover" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
               <Setter TargetName="Press" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
@@ -91,20 +69,6 @@
               <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
               <Setter TargetName="Tick" Property="Opacity" Value="1"/>
             </Trigger>
-            <MultiDataTrigger>
-              <MultiDataTrigger.Conditions>
-                <Condition Binding="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}}" Value="True"/>
-                <Condition Binding="{Binding Source={x:Static SystemParameters.ClientAreaAnimation}}" Value="True"/>
-              </MultiDataTrigger.Conditions>
-              <MultiDataTrigger.EnterActions>
-                <BeginStoryboard>
-                  <Storyboard>
-                    <DoubleAnimation Storyboard.TargetName="Tick" Storyboard.TargetProperty="Opacity"
-                                     From="0" To="1" Duration="0:0:0.1" FillBehavior="Stop"/>
-                  </Storyboard>
-                </BeginStoryboard>
-              </MultiDataTrigger.EnterActions>
-            </MultiDataTrigger>
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
             </Trigger>
@@ -162,6 +126,7 @@
   <Style x:Key="SoftInput" TargetType="TextBox">
     <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
     <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="CaretBrush" Value="{DynamicResource InkBrush}"/>
     <Setter Property="BorderBrush" Value="{DynamicResource EdgeBrush}"/>
     <Setter Property="BorderThickness" Value="1"/>
     <Setter Property="Padding" Value="7,4"/>
@@ -172,19 +137,23 @@
         <ControlTemplate TargetType="TextBox">
           <Border x:Name="Chrome" CornerRadius="5" Background="{TemplateBinding Background}"
                   BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
-            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+            <!-- TextBoxBase applies its padding and scroll settings to the content host. -->
+            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                          SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
           </Border>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsKeyboardFocused" Value="True">
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
               <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-            </Trigger>
-            <Trigger Property="AcceptsReturn" Value="True">
-              <Setter TargetName="PART_ContentHost" Property="VerticalAlignment" Value="Stretch"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+    <Style.Triggers>
+      <Trigger Property="AcceptsReturn" Value="True">
+        <Setter Property="VerticalContentAlignment" Value="Top"/>
+      </Trigger>
+    </Style.Triggers>
   </Style>
   <Style x:Key="ScrollTrackButton" TargetType="RepeatButton">
     <Setter Property="Focusable" Value="False"/>
@@ -281,7 +250,7 @@
                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14"/>
               </Button>
               <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=PART_Root}"
-                     AllowsTransparency="True" PopupAnimation="{DynamicResource PopupMotion}" StaysOpen="False"/>
+                     AllowsTransparency="False" PopupAnimation="None" StaysOpen="False"/>
             </Grid>
           </Border>
           <ControlTemplate.Triggers>
@@ -310,7 +279,7 @@
                     StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14"/>
             </Button>
             <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=PART_Root}"
-                   AllowsTransparency="True" PopupAnimation="{DynamicResource PopupMotion}" StaysOpen="False"/>
+                   AllowsTransparency="False" PopupAnimation="None" StaysOpen="False"/>
           </Grid>
         </ControlTemplate>
       </Setter.Value>
@@ -340,9 +309,10 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="23"/>
               </Grid.ColumnDefinitions>
-              <TextBox x:Name="PART_EditableTextBox" Background="Transparent" BorderThickness="0" Padding="3,1"
+              <TextBox x:Name="PART_EditableTextBox" Style="{StaticResource SoftInput}"
+                       Background="Transparent" BorderThickness="0" Padding="3,1" MinHeight="0"
                        Foreground="{TemplateBinding Foreground}" VerticalContentAlignment="Center"
-                       HorizontalContentAlignment="Center"/>
+                       TextAlignment="Center"/>
               <ToggleButton Grid.Column="1" Focusable="False" ClickMode="Press"
                             IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                 <ToggleButton.Template>
@@ -360,11 +330,11 @@
                   </ControlTemplate>
                 </ToggleButton.Template>
               </ToggleButton>
-              <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" Focusable="False" AllowsTransparency="True"
+              <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" Focusable="False" AllowsTransparency="False"
                      Placement="Bottom" PlacementTarget="{Binding ElementName=Chrome}"
-                     PopupAnimation="{DynamicResource PopupMotion}" IsOpen="{TemplateBinding IsDropDownOpen}">
+                     PopupAnimation="None" IsOpen="{TemplateBinding IsDropDownOpen}">
                 <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource EdgeBrush}"
-                        BorderThickness="1" CornerRadius="7" Padding="3"
+                        BorderThickness="1" Padding="3"
                         MinWidth="{TemplateBinding ActualWidth}" RenderOptions.ClearTypeHint="Enabled">
                   <ScrollViewer CanContentScroll="True" MaxHeight="{TemplateBinding MaxDropDownHeight}"
                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

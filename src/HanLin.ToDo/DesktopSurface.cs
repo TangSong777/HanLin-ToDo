@@ -39,9 +39,14 @@ internal sealed class DesktopSurface : IDisposable
         };
         dragTimer.Tick += (_, _) =>
         {
-            if (Native.PrimaryButtonDown())
+            if (view.IsMouseCaptured && Native.PrimaryButtonDown())
                 MoveFromCursor();
             else
+                EndDrag();
+        };
+        view.LostMouseCapture += (_, _) =>
+        {
+            if (!view.IsMouseCaptured)
                 EndDrag();
         };
         view.PreviewMouseLeftButtonDown += BeginDrag;
@@ -90,7 +95,7 @@ internal sealed class DesktopSurface : IDisposable
             Native.SetWindowPos(source.Handle, IntPtr.Zero, 0, 0, 0, 0,
                 Native.NoMove | Native.NoSize | Native.NoZOrder | Native.NoActivate
                 | (visible ? Native.ShowWindow : Native.HideWindow));
-        if (visible && !dragging)
+        if (visible && !dragging && !view.IsPickerOpen)
             PositionWindow(position);
     }
 
@@ -190,16 +195,17 @@ internal sealed class DesktopSurface : IDisposable
     {
         var hit = args.GetPosition(view);
         if (dragging || source is null || source.IsDisposed
-            || !view.TryGetWindowDrag(view.InputHitTest(hit), hit, out var edges)
+            || !view.TryGetWindowDrag(args.OriginalSource, hit, out var edges)
             || !Native.GetCursorPos(out var cursor) || !Native.GetWindowRect(source.Handle, out var window))
             return;
 
+        if (!view.CaptureMouse())
+            return;
         resizeEdges = edges;
         originalBounds = window;
         dragStart = new Point(cursor.X, cursor.Y);
         movedPastThreshold = false;
         dragging = true;
-        view.CaptureMouse();
         dragTimer.Start();
         args.Handled = true;
     }

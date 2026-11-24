@@ -75,7 +75,7 @@
             </Border>
             <Popup x:Name="PART_Popup" Placement="Right" PlacementTarget="{Binding ElementName=Item}"
                    IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
-                   AllowsTransparency="True" PopupAnimation="{DynamicResource PopupMotion}"
+                   AllowsTransparency="True" PopupAnimation="None"
                    Focusable="False" HorizontalOffset="-6">
               <Grid Margin="6" MinWidth="140" MaxWidth="280" UseLayoutRounding="True" SnapsToDevicePixels="True"
                     TextOptions.TextFormattingMode="Display">

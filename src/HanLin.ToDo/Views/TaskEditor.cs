@@ -84,7 +84,6 @@ internal sealed class TaskEditor : Border
             Margin = new Thickness(0, 6, 0, 0)
         };
         details.AutomationName("任务详情");
-        details.Expanded += (_, _) => Ui.Reveal(detailsEditor);
         fields.Children.Add(details);
 
         error = Ui.Text("", 12, "OverdueBrush");
@@ -92,17 +91,18 @@ internal sealed class TaskEditor : Border
         error.Visibility = Visibility.Collapsed;
         error.Margin = new Thickness(0, 5, 0, 0);
         fields.Children.Add(error);
-        date.SelectedDateChanged += (_, _) =>
+        void RefreshDateInput()
         {
             invalidDate = false;
             time.IsEnabled = date.SelectedDate.HasValue;
             error.Visibility = Visibility.Collapsed;
-        };
-        date.CalendarOpened += (_, _) =>
+        }
+        date.SelectedDateChanged += (_, _) =>
         {
-            invalidDate = false;
-            error.Visibility = Visibility.Collapsed;
+            if (!date.IsDropDownOpen)
+                RefreshDateInput();
         };
+        date.CalendarClosed += (_, _) => RefreshDateInput();
         date.DateValidationError += (_, args) =>
         {
             args.ThrowException = false;
@@ -122,15 +122,17 @@ internal sealed class TaskEditor : Border
         KeyDown += OnKey;
     }
 
+    public bool IsPickerOpen => date.IsDropDownOpen || time.IsDropDownOpen || detailsEditor.IsPickerOpen;
+
     public void FocusTitle() => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
     {
-        Keyboard.Focus(title);
-        title.SelectAll();
+        if (title.IsVisible && !IsPickerOpen && title.Focus())
+            title.SelectAll();
     }));
 
     private void OnKey(object sender, KeyEventArgs args)
     {
-        if (date.IsDropDownOpen || time.IsDropDownOpen || detailsEditor.IsPickerOpen)
+        if (IsPickerOpen)
             return;
         if (args.Key == Key.Escape)
         {
@@ -173,7 +175,7 @@ internal sealed class TaskEditor : Border
             if (!time.TryRead(out var clock))
             {
                 ShowError(DeadlineTimeBox.InvalidTime);
-                time.Focus();
+                time.FocusInput();
                 return;
             }
             due = new TodoDeadline(DateOnly.FromDateTime(day), clock);
@@ -235,11 +237,7 @@ internal sealed class CaptureWindow : Window
         }, Close);
         editor.Margin = new Thickness(10);
         Content = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        ContentRendered += (_, _) =>
-        {
-            Ui.Reveal(editor);
-            editor.FocusTitle();
-        };
+        ContentRendered += (_, _) => editor.FocusTitle();
     }
 
     public void FocusEditor()

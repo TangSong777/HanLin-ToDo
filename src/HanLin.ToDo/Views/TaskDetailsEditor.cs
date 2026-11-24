@@ -99,6 +99,7 @@ internal sealed class TaskDetailsEditor : StackPanel
         };
         reminder.AutomationName("提醒日期");
         reminderTime = Ui.Input("提醒时间", details.Reminder?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? "09:00");
+        reminderTime.TextAlignment = TextAlignment.Center;
         reminderTime.Width = 62;
         reminderTime.IsEnabled = details.Reminder.HasValue;
         reminderTime.Margin = new Thickness(5, 0, 0, 0);
@@ -108,13 +109,18 @@ internal sealed class TaskDetailsEditor : StackPanel
             e.ThrowException = false;
             ShowNotice("请选择有效的提醒日期。");
         };
-        reminder.SelectedDateChanged += (_, _) =>
+        void RefreshReminderInput()
         {
             invalidReminder = false;
             reminderTime.IsEnabled = reminder.SelectedDate.HasValue;
             ShowNotice(null);
+        }
+        reminder.SelectedDateChanged += (_, _) =>
+        {
+            if (!reminder.IsDropDownOpen)
+                RefreshReminderInput();
         };
-        reminder.CalendarOpened += (_, _) => { invalidReminder = false; ShowNotice(null); };
+        reminder.CalendarClosed += (_, _) => RefreshReminderInput();
         var clear = Ui.Button("清除提醒", () =>
         {
             reminder.SelectedDate = null;

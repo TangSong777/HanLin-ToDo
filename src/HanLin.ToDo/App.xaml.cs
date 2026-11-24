@@ -225,6 +225,7 @@ public partial class App : Application
             capture = new CaptureWindow(preferences.Theme, draft, current.Catalog, task => Mutate(() => tasks.Add(task)));
             capture.Closed += (_, _) => capture = null;
             capture.Show();
+            return;
         }
         capture.FocusEditor();
     }

@@ -2,15 +2,17 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Style x:Key="SoftCalendarDay" TargetType="CalendarDayButton">
     <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-    <Setter Property="Margin" Value="1"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="CalendarDayButton">
-          <Border x:Name="Day" CornerRadius="7" Background="Transparent" BorderBrush="Transparent" BorderThickness="1">
-            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          </Border>
+          <Grid Background="Transparent">
+            <Border x:Name="Day" Margin="1" CornerRadius="7" Background="Transparent"
+                    BorderBrush="Transparent" BorderThickness="1">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsInactive" Value="True">
               <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
@@ -22,8 +24,8 @@
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Day" Property="Background" Value="{DynamicResource HoverBrush}"/>
             </Trigger>
-            <Trigger Property="IsHighlighted" Value="True">
-              <Setter TargetName="Day" Property="Background" Value="{DynamicResource TintBrush}"/>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Day" Property="Background" Value="{DynamicResource PressBrush}"/>
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
               <Setter TargetName="Day" Property="Background" Value="{DynamicResource AccentBrush}"/>
@@ -44,21 +46,26 @@
 
   <Style x:Key="SoftCalendarMonth" TargetType="CalendarButton">
     <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-    <Setter Property="Margin" Value="2"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="CalendarButton">
-          <Border x:Name="Cell" CornerRadius="7" Background="Transparent" BorderThickness="1">
-            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          </Border>
+          <Grid Background="Transparent">
+            <Border x:Name="Cell" Margin="2" CornerRadius="7" Background="Transparent"
+                    BorderBrush="Transparent" BorderThickness="1">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+          </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsInactive" Value="True">
               <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
             </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Cell" Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Cell" Property="Background" Value="{DynamicResource PressBrush}"/>
             </Trigger>
             <Trigger Property="HasSelectedDays" Value="True">
               <Setter TargetName="Cell" Property="Background" Value="{DynamicResource AccentBrush}"/>
@@ -152,6 +159,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource EdgeBrush}"/>
     <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
     <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="Cursor" Value="Arrow"/>
     <Setter Property="SnapsToDevicePixels" Value="True"/>
     <Setter Property="UseLayoutRounding" Value="True"/>
     <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
@@ -161,14 +169,9 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="Calendar">
-          <Grid x:Name="PART_Root" Margin="5">
-            <Border CornerRadius="12" Background="{TemplateBinding Background}" IsHitTestVisible="False">
-              <Border.Effect>
-                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.18"/>
-              </Border.Effect>
-            </Border>
-            <Border CornerRadius="12" BorderThickness="1" BorderBrush="{TemplateBinding BorderBrush}"
-                    Background="{TemplateBinding Background}" RenderOptions.ClearTypeHint="Enabled" Padding="9">
+          <Grid x:Name="PART_Root" Background="{TemplateBinding Background}">
+            <Border BorderThickness="1" BorderBrush="{TemplateBinding BorderBrush}"
+                    RenderOptions.ClearTypeHint="Enabled" Padding="14">
               <CalendarItem x:Name="PART_CalendarItem" Style="{TemplateBinding CalendarItemStyle}"/>
             </Border>
           </Grid>

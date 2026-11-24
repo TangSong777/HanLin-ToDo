@@ -10,7 +10,6 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
-using System.Windows.Threading;
 
 namespace HanLin.ToDo;
 
@@ -36,6 +35,7 @@ internal sealed partial class NoteView : Border
     private DateTime lastRender;
     private bool initialized;
     private bool loadedTasks;
+    private bool deferredRowRefresh;
 
     public event Action? NewRequested;
     public event Action? SettingsRequested;
@@ -45,6 +45,7 @@ internal sealed partial class NoteView : Border
     public Func<TodoItem, TodoDraft, string?>? SaveEdit { get; set; }
     public bool IsLocked => settings.Locked;
     public bool IsEditingTask => editor is not null;
+    public bool IsPickerOpen => quickDate.IsDropDownOpen || quickTime.IsDropDownOpen || editor?.IsPickerOpen == true;
 
     public NoteView()
     {
@@ -192,8 +193,9 @@ internal sealed partial class NoteView : Border
             lockButton.ToolTip = label;
             lockButton.AutomationName(label);
             var icon = Ui.Glyph(settings.Locked ? "lock" : "unlock");
+            icon.IsHitTestVisible = false;
             lockButton.Content = icon;
-            if (initialized) Ui.Reveal(icon, 2);
+            if (initialized) Ui.FadeDecoration(icon, 0.55, 1);
             if (settings.Locked)
                 lockButton.SetResourceReference(Control.BackgroundProperty, "TintBrush");
             else
@@ -203,8 +205,6 @@ internal sealed partial class NoteView : Border
             || previous.Sort != settings.Sort
             || previous.Theme.Size != theme.Size || previous.Theme.Padding != theme.Padding)
             Render();
-        if (initialized && settings.ShowCompleted && !previous.ShowCompleted)
-            Ui.Reveal(completed);
         initialized = true;
     }
 
@@ -270,10 +270,26 @@ internal sealed partial class NoteView : Border
         }
         var prior = snapshot;
         snapshot = next;
-        Render();
-        if (loadedTasks || prior.Items.Count == 0 && next.Items.Count == 1)
-            AnimateTaskChanges(prior);
+        if (CanRefreshRows)
+        {
+            Render();
+            if (loadedTasks || prior.Items.Count == 0 && next.Items.Count == 1)
+                AnimateTaskChanges(prior);
+        }
+        else
+        {
+            deferredRowRefresh = true;
+        }
         loadedTasks = true;
+    }
+
+    // Rebuilding rows detaches the inline editor and closes its popups.
+    private bool CanRefreshRows => !IsPickerOpen && editor?.IsKeyboardFocusWithin != true;
+
+    private void RefreshDeferredRows()
+    {
+        if (deferredRowRefresh && CanRefreshRows)
+            Render();
     }
 
     public void RefreshTime()
@@ -281,7 +297,8 @@ internal sealed partial class NoteView : Border
         DateTime now = DateTime.Now;
         if (now.Date != lastRender.Date ||
             snapshot.Items.Any(item => !item.Done && item.Due is { } due && due.IsOverdue(now) && !due.IsOverdue(lastRender)))
-            Render();
+            deferredRowRefresh = true;
+        RefreshDeferredRows();
     }
 
     public void ShowNotice(string? message)
@@ -292,6 +309,7 @@ internal sealed partial class NoteView : Border
 
     private void Render()
     {
+        deferredRowRefresh = false;
         lastRender = DateTime.Now;
         ClearTaskDrag();
         taskRows.Clear();
@@ -424,7 +442,12 @@ internal sealed partial class NoteView : Border
         Grid.SetColumn(edit, 4);
         grid.Children.Add(edit);
 
-        var row = new Border { Child = grid, Style = (Style)Application.Current.FindResource("SoftTaskRow") };
+        var feedback = new Border { CornerRadius = new CornerRadius(5), Opacity = 0, IsHitTestVisible = false };
+        feedback.SetResourceReference(BackgroundProperty, "TintBrush");
+        var rowContent = new Grid();
+        rowContent.Children.Add(feedback);
+        rowContent.Children.Add(grid);
+        var row = new Border { Child = rowContent, Style = (Style)Application.Current.FindResource("SoftTaskRow") };
         row.SetResourceReference(BorderBrushProperty, "LineBrush");
         if (!selecting)
         {
@@ -440,7 +463,7 @@ internal sealed partial class NoteView : Border
         var container = new Grid();
         container.Children.Add(row);
         container.Children.Add(insertion);
-        taskRows.Add(item, new TaskRow(row, insertion, handle));
+        taskRows.Add(item, new TaskRow(row, insertion, handle, feedback));
         return container;
     }
 
@@ -449,7 +472,7 @@ internal sealed partial class NoteView : Border
         var oldById = prior.Items.Where(item => item.Details.Id is not null).ToLookup(item => item.Details.Id);
         foreach (var item in taskRows.Keys.Where(item => item.Details.Id is { } id &&
             !oldById[id].Any(old => old.Done == item.Done && old.Details.Pinned == item.Details.Pinned)).Take(4))
-            Ui.Reveal(taskRows[item].Face);
+            Ui.FadeDecoration(taskRows[item].Feedback, 1, 0);
     }
 
     private void BeginEdit(TodoItem item)
@@ -463,7 +486,6 @@ internal sealed partial class NoteView : Border
             return error;
         }, CloseEditor);
         Render();
-        Ui.Reveal(editor);
         editor.FocusTitle();
         editor.BringIntoView();
     }
@@ -473,7 +495,7 @@ internal sealed partial class NoteView : Border
         editor = null;
         editTarget = null;
         Render();
-        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => quickInput.Focus()));
+        quickInput.Focus();
     }
 }
 

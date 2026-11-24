@@ -3,7 +3,6 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -45,7 +44,6 @@ internal static class Ui
         resources["AccentHoverBrush"] = Brush(Mix(accent, ink, 0.09));
         resources["EdgeBrush"] = Brush(Mix(surface, ink, 0.15));
         resources["LineBrush"] = Brush(Mix(surface, ink, 0.07));
-        resources["PopupMotion"] = MotionEnabled ? PopupAnimation.Fade : PopupAnimation.None;
     }
 
     public static void ConfigureText(FrameworkElement root)
@@ -56,13 +54,11 @@ internal static class Ui
         TextOptions.SetTextHintingMode(root, TextHintingMode.Fixed);
     }
 
-    public static void Reveal(FrameworkElement element, double shift = 4)
+    public static void FadeDecoration(UIElement decoration, double from, double to)
     {
         if (!MotionEnabled)
             return;
-        var translation = new TranslateTransform();
-        element.RenderTransform = translation;
-        translation.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(shift, 0, TimeSpan.FromMilliseconds(150))
+        decoration.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(140))
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             FillBehavior = FillBehavior.Stop

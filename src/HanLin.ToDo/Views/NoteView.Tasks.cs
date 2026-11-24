@@ -92,12 +92,27 @@ internal sealed partial class NoteView
         quickTime.PreviewKeyDown += ConfirmQuickTask;
         DateTime? dateAtOpen = null;
         quickDate.CalendarOpened += (_, _) => dateAtOpen = quickDate.SelectedDate;
-        quickDate.SelectedDateChanged += (_, _) => UpdateQuickDeadline();
-        quickDate.CalendarClosed += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        quickDate.SelectedDateChanged += (_, _) =>
         {
-            if (quickDate.SelectedDate != dateAtOpen || quickDate.IsKeyboardFocusWithin)
-                quickInput.Focus();
-        }));
+            if (!quickDate.IsDropDownOpen)
+                UpdateQuickDeadline();
+        };
+        quickDate.CalendarClosed += (_, _) =>
+        {
+            var priorDate = dateAtOpen;
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+            {
+                if (quickDate.IsDropDownOpen)
+                    return;
+                UpdateQuickDeadline();
+                var focus = Keyboard.FocusedElement;
+                bool focusReleased = focus is null || focus is Visual visual && PresentationSource.FromVisual(visual) is null;
+                if (quickDate.IsKeyboardFocusWithin || quickDate.SelectedDate != priorDate && focusReleased)
+                    quickInput.Focus();
+                RefreshDeferredRows();
+            }));
+        };
+        quickTime.DropDownClosed += (_, _) => RefreshDeferredRows();
 
         searchInput = Ui.Input("搜索待办");
         searchInput.MaxLength = 300;
@@ -167,9 +182,7 @@ internal sealed partial class NoteView
         quickDeadlineLabel.Text = "截止 · " + day.ToString(day.Year == DateTime.Today.Year ? "M月d日" : "yyyy/M/d",
             CultureInfo.InvariantCulture);
         quickDate.SetResourceReference(Control.BackgroundProperty, "TintBrush");
-        bool reveal = quickDeadlineRow.Visibility != Visibility.Visible;
         quickDeadlineRow.Visibility = Visibility.Visible;
-        if (reveal) Ui.Reveal(quickDeadlineRow);
     }
 
     private void ClearQuickDeadline()
@@ -242,7 +255,7 @@ internal sealed partial class NoteView
             if (!quickTime.TryRead(out var time))
             {
                 ShowNotice(DeadlineTimeBox.InvalidTime);
-                quickTime.Focus();
+                quickTime.FocusInput();
                 return;
             }
             due = new TodoDeadline(DateOnly.FromDateTime(day), time);
@@ -263,9 +276,7 @@ internal sealed partial class NoteView
 
     private void ShowSearch()
     {
-        bool reveal = searchRow.Visibility != Visibility.Visible;
         searchRow.Visibility = Visibility.Visible;
-        if (reveal) Ui.Reveal(searchRow);
         searchInput.Focus();
         searchInput.SelectAll();
     }
@@ -279,13 +290,13 @@ internal sealed partial class NoteView
 
     private void TaskShortcuts(object sender, KeyEventArgs args)
     {
-        if (Keyboard.Modifiers != ModifierKeys.Control)
+        if (Keyboard.Modifiers != ModifierKeys.Control || IsPickerOpen)
             return;
         if (args.Key == Key.F)
             ShowSearch();
         else if (args.Key == Key.N)
             quickInput.Focus();
-        else if (args.Key == Key.Z && args.OriginalSource is not TextBoxBase && undoId is not null)
+        else if (args.Key == Key.Z && args.OriginalSource is not (TextBoxBase or ComboBox or DatePicker) && undoId is not null)
             UndoDelete();
         else
             return;
@@ -388,10 +399,7 @@ internal sealed partial class NoteView
         undoId = id;
         undoRow.Visibility = id is null ? Visibility.Collapsed : Visibility.Visible;
         if (id is not null)
-        {
-            Ui.Reveal(undoRow);
             undoTimer.Start();
-        }
     }
 
     private void UndoDelete()
@@ -508,19 +516,20 @@ internal sealed partial class NoteView
         grid.Children.Add(input);
         var hint = Ui.Text(display, 13, "MutedBrush");
         hint.VerticalAlignment = VerticalAlignment.Center;
-        hint.Margin = new Thickness(8, 0, 4, 0);
+        hint.Margin = new Thickness(input.Padding.Left + input.BorderThickness.Left, 0,
+            input.Padding.Right + input.BorderThickness.Right, 0);
+        hint.TextTrimming = TextTrimming.CharacterEllipsis;
         hint.IsHitTestVisible = false;
         grid.Children.Add(hint);
-        input.TextChanged += (_, _) => hint.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        void UpdateHint() => hint.Visibility = input.Text.Length == 0 && !input.IsKeyboardFocusWithin
+            ? Visibility.Visible : Visibility.Collapsed;
+        input.TextChanged += (_, _) => UpdateHint();
+        input.IsKeyboardFocusWithinChanged += (_, _) => UpdateHint();
+        UpdateHint();
         return grid;
     }
 
-    private static ContextMenu CreateMenu()
-    {
-        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("SoftMenu") };
-        menu.Opened += (_, _) => Ui.Reveal(menu);
-        return menu;
-    }
+    private static ContextMenu CreateMenu() => new() { Style = (Style)Application.Current.FindResource("SoftMenu") };
 
     private static Separator MenuDivider() => new() { Style = (Style)Application.Current.FindResource("SoftMenuDivider") };
 

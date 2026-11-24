@@ -34,14 +34,30 @@ internal sealed class DeadlineTimeBox : ComboBox
 
     protected override void OnDropDownOpened(EventArgs e)
     {
+        var input = GetTemplateChild("PART_EditableTextBox") as TextBox;
+        int selectionStart = input?.SelectionStart ?? 0;
+        int selectionLength = input?.SelectionLength ?? 0;
         SetChoice(Text);
+        if (input is { IsKeyboardFocusWithin: true })
+            input.Select(selectionStart, selectionLength);
         base.OnDropDownOpened(e);
+    }
+
+    public void FocusInput()
+    {
+        if (GetTemplateChild("PART_EditableTextBox") is TextBox input && input.Focus())
+            input.SelectAll();
+        else
+            Focus();
     }
 
     private void SetChoice(string text)
     {
-        SelectedIndex = Array.IndexOf(Choices, text.Trim());
-        Text = text;
+        int index = Array.IndexOf(Choices, text.Trim());
+        if (SelectedIndex != index)
+            SelectedIndex = index;
+        if (!string.Equals(Text, text, StringComparison.Ordinal))
+            Text = text;
     }
 
     public bool TryRead(out TimeOnly? time)

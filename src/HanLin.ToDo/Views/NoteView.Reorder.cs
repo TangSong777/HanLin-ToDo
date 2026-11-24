@@ -11,7 +11,7 @@ namespace HanLin.ToDo;
 
 internal sealed partial class NoteView
 {
-    private sealed record TaskRow(Border Face, Border Insertion, Thumb? Handle);
+    private sealed record TaskRow(Border Face, Border Insertion, Thumb? Handle, Border Feedback);
     private sealed record DropLocation(TodoItem Item, bool After);
 
     private readonly Dictionary<TodoItem, TaskRow> taskRows = [];
@@ -164,7 +164,7 @@ internal sealed partial class NoteView
         if (moved.Value is { } row)
         {
             if (keepFocus) row.Handle?.Focus();
-            Ui.Reveal(row.Face, destination > prior ? -4 : 4);
+            Ui.FadeDecoration(row.Feedback, 1, 0);
         }
     }
 
