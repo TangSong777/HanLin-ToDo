@@ -117,15 +117,25 @@ internal sealed partial class NoteView : Border
         {
             Style = (Style)Application.Current.FindResource("NoteScroll"),
             Content = lists,
-            Margin = new Thickness(0, 0, 7, 0),
             Focusable = false,
             PanningMode = PanningMode.VerticalOnly,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        Grid.SetRow(taskScroll, 2);
-        layout.Children.Add(taskScroll);
-        taskReorderTimer.Tick += (_, _) => ContinueTaskDrag(scroll: true);
+        var taskArea = new Grid { Margin = new Thickness(0, 0, 7, 0) };
+        taskArea.Children.Add(taskScroll);
+        taskDropMarker.SetResourceReference(BackgroundProperty, "AccentBrush");
+        taskDropMarker.RenderTransform = taskDropPosition;
+        taskDragLayer.Children.Add(taskDropMarker);
+        taskArea.Children.Add(taskDragLayer);
+        Grid.SetRow(taskArea, 2);
+        layout.Children.Add(taskArea);
+        taskReorderTimer.Tick += (_, _) => ScrollTaskDrag();
+        taskScroll.ScrollChanged += (_, _) =>
+        {
+            if (taskDragPreview is not null)
+                ContinueTaskDrag();
+        };
 
         notice.Margin = new Thickness(0, 3, 6, 4);
         notice.TextWrapping = TextWrapping.Wrap;
@@ -454,17 +464,8 @@ internal sealed partial class NoteView : Border
             row.ContextMenu = CreateMenu();
             row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
         }
-        var insertion = new Border
-        {
-            Height = 2, CornerRadius = new CornerRadius(1), Margin = new Thickness(2, 0, 1, 0),
-            IsHitTestVisible = false, Visibility = Visibility.Collapsed
-        };
-        insertion.SetResourceReference(BackgroundProperty, "AccentBrush");
-        var container = new Grid();
-        container.Children.Add(row);
-        container.Children.Add(insertion);
-        taskRows.Add(item, new TaskRow(row, insertion, handle, feedback));
-        return container;
+        taskRows.Add(item, new TaskRow(row, handle, feedback));
+        return row;
     }
 
     private void AnimateTaskChanges(TodoSnapshot prior)
