@@ -16,8 +16,8 @@ internal sealed class SettingsWindow : Window
     private readonly StackPanel fields = new() { Margin = new Thickness(20, 16, 20, 14) };
     private readonly TextBox accent;
     private readonly TextBox surface;
-    private readonly ComboBox font;
-    private readonly ComboBox titleFont;
+    private readonly FontPicker font;
+    private readonly FontPicker titleFont;
     private readonly Slider size;
     private readonly Slider radius;
     private readonly Slider padding;
@@ -212,19 +212,22 @@ internal sealed class SettingsWindow : Window
         return grid;
     }
 
-    private static ComboBox AddFont(Grid group, string label, int index, int column, params string[] options)
+    private static FontPicker AddFont(Grid group, string label, int index, int column, params string[] options)
     {
         var stack = new StackPanel();
         stack.Children.Add(Ui.Text(label, 13, "MutedBrush"));
-        var box = new ComboBox
+        var families = new[]
         {
-            ItemsSource = options, SelectedIndex = index, MinHeight = 27, Margin = new Thickness(0, 3, 0, 0)
+            new FontFamily(NoteFonts.YaHei),
+            new FontFamily(NoteFonts.SimSun),
+            Ui.Resolve(NoteFonts.YueHei)
         };
-        box.AutomationName(label);
-        stack.Children.Add(box);
+        var picker = new FontPicker(options, families, index) { Margin = new Thickness(0, 3, 0, 0) };
+        picker.AutomationName(label);
+        stack.Children.Add(picker);
         Grid.SetColumn(stack, column);
         group.Children.Add(stack);
-        return box;
+        return picker;
     }
 
     private static TextBox AddDimension(Grid group, string label, int value, int column)
