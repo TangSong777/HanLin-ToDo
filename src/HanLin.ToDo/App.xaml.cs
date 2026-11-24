@@ -24,6 +24,8 @@ public partial class App : Application
     private const uint CtrlAltNoRepeat = 0x4003;
     private const uint KeyT = 0x54;
     private TaskFile tasks = null!;
+    private TaskLocation taskLocation = null!;
+    private bool taskDirectoryReady;
     private PreferencesFile storage = null!;
     private StartupEntry startup = null!;
     private NotePreferences preferences = new();
@@ -65,15 +67,15 @@ public partial class App : Application
             }
 
             Directory.CreateDirectory(directory);
-            tasks = new TaskFile(Path.Combine(directory, "todo.md"));
+            taskLocation = new TaskLocation(directory, commandLineOverride: alternate is not null);
             storage = new PreferencesFile(Path.Combine(directory, "settings.json"));
             startup = new StartupEntry(alternate is null ? "HanLin-ToDo" : "HanLin-ToDo-" + identity,
                 alternate is null ? null : directory);
             preferences = storage.Read(out string? warning);
+            warning = LoadTaskDirectory(warning);
             Ui.SetTheme(preferences.Theme);
             note = new NoteView();
             note.Apply(preferences);
-            note.ShowNotice(warning);
             note.NewRequested += ShowCapture;
             note.SettingsRequested += ShowSettings;
             note.LockRequested += ToggleLock;
@@ -93,7 +95,8 @@ public partial class App : Application
             note.BatchDeleteRequested += DeleteTasks;
             note.ExportRequested += ExportTasks;
             desktop = new DesktopSurface(note, preferences, next => ChangePreferences(next));
-            ReloadTasks();
+            note.UpdateTasks(current);
+            note.ShowNotice(warning);
             CreateTray();
             RegisterHotkey();
             RefreshDesktop();
@@ -115,6 +118,50 @@ public partial class App : Application
             Shutdown(1);
         }
     }
+
+    private string? LoadTaskDirectory(string? settingsWarning)
+    {
+        string? warning = settingsWarning;
+        string directory;
+        try
+        {
+            directory = taskLocation.Resolve(preferences.WorkingDirectory);
+        }
+        catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or NotSupportedException)
+        {
+            directory = taskLocation.DefaultDirectory;
+            preferences = preferences with { WorkingDirectory = null };
+            warning = "保存的工作目录无效，已使用默认目录。";
+        }
+
+        tasks = TaskLocation.FileIn(directory);
+        try
+        {
+            current = TaskLocation.Prepare(directory, tasks, PendingLegacyFile());
+            taskDirectoryReady = true;
+        }
+        catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or NotSupportedException)
+        {
+            return "无法使用工作目录。可以在便签设置中重新选择。";
+        }
+
+        if (taskLocation.CanChoose && !preferences.LegacyTasksHandled && settingsWarning is null)
+        {
+            try
+            {
+                var updated = preferences with { LegacyTasksHandled = true };
+                storage.Save(updated);
+                preferences = updated;
+            }
+            catch (Exception ex) when (IsExpected(ex))
+            {
+                warning ??= "工作目录已读取。迁移状态无法保存。";
+            }
+        }
+        return warning;
+    }
+
+    private string? PendingLegacyFile() => preferences.LegacyTasksHandled ? null : taskLocation.LegacyFile;
 
     private void RegisterHotkey()
     {
@@ -322,7 +369,9 @@ public partial class App : Application
         {
             try
             {
-                settingsWindow = new SettingsWindow(preferences.Theme, startup.Command is not null, OpenTaskFile, ApplySettings);
+                settingsWindow = new SettingsWindow(preferences.Theme, startup.Command is not null,
+                    Path.GetDirectoryName(tasks.Path)!, taskLocation.CanChoose ? taskLocation.DefaultDirectory : null,
+                    OpenTaskFile, ApplySettings);
                 settingsWindow.Closed += (_, _) => settingsWindow = null;
                 settingsWindow.Show();
             }
@@ -334,8 +383,36 @@ public partial class App : Application
         settingsWindow?.Activate();
     }
 
-    private string? ApplySettings(NoteTheme theme, bool startWithWindows)
+    private string? ApplySettings(NoteTheme theme, bool startWithWindows, string requestedDirectory)
     {
+        string directory;
+        try
+        {
+            directory = taskLocation.Resolve(requestedDirectory);
+        }
+        catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or NotSupportedException)
+        {
+            return "请输入有效的工作目录完整路径。";
+        }
+        var replacement = TaskLocation.FileIn(directory);
+        bool switching = !string.Equals(tasks.Path, replacement.Path, StringComparison.OrdinalIgnoreCase);
+        if (switching && (note.IsEditingTask || capture is not null || listsWindow is not null))
+            return "请先保存或取消正在编辑的任务或清单，再切换工作目录。";
+
+        TodoSnapshot? replacementSnapshot = null;
+        if (switching || !taskDirectoryReady || !Directory.Exists(directory))
+        {
+            string? seed = switching && (taskDirectoryReady || File.Exists(tasks.Path)) ? tasks.Path : PendingLegacyFile();
+            try
+            {
+                replacementSnapshot = TaskLocation.Prepare(directory, replacement, seed);
+            }
+            catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or NotSupportedException)
+            {
+                return "无法使用所选工作目录，请检查文件夹权限和 todo.md 的编码。";
+            }
+        }
+
         string? previous;
         try
         {
@@ -347,17 +424,39 @@ public partial class App : Application
             return "保存开机启动设置失败。";
         }
 
-        if (ChangePreferences(preferences with { Theme = theme }))
+        var updated = preferences with { Theme = theme };
+        if (taskLocation.CanChoose)
+            updated = updated with
+            {
+                WorkingDirectory = string.Equals(directory, taskLocation.DefaultDirectory, StringComparison.OrdinalIgnoreCase)
+                    ? null : directory,
+                LegacyTasksHandled = true
+            };
+        if (ChangePreferences(updated))
+        {
+            if (replacementSnapshot is not null)
+            {
+                tasks = replacement;
+                current = replacementSnapshot;
+                taskDirectoryReady = true;
+                if (switching)
+                {
+                    note.ShowUndo(null);
+                    note.EndSelection();
+                }
+                note.UpdateTasks(current);
+            }
             return null;
+        }
         try
         {
             startup.SetCommand(previous);
         }
         catch (Exception ex) when (IsExpected(ex))
         {
-            return "外观保存失败。开机启动设置已更新。";
+            return "便签设置保存失败。开机启动设置已更新。";
         }
-        return "保存便签外观失败。";
+        return "保存便签设置失败。";
     }
 
     private bool ChangePreferences(NotePreferences next)
@@ -415,7 +514,7 @@ public partial class App : Application
         }
         catch (Exception ex) when (IsExpected(ex))
         {
-            note.ShowNotice("无法读取 todo.md，请检查文件权限及编码。");
+            note.ShowNotice("无法读取 todo.md，请检查工作目录、文件权限及编码。");
         }
     }
 

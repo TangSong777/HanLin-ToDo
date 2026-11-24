@@ -15,6 +15,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 - 清单按组组织，可单独写文字便笺。任务可置顶、加入今天，设置步骤、备注、标签、附件、提醒和重复，可搜索、批量整理或移入回收站。
 - 点击铅笔可在便签内修改任务与截止时间。解锁后只能拖动标题栏来移动便签，锁定时仍可勾选和编辑。
 - 登录自启可在设置中开启。程序恢复上次位置、锁定状态、外观和任务。
+- 工作目录默认是 EXE 同级的 `data` 文件夹，也可在便签设置中指定存放 `todo.md` 的目录。
 - 默认使用暖白底、低饱和珊瑚红和柔和圆角。便签有紧凑、标准和宽敞三种尺寸方案，标题默认使用本机悦黑常规体，正文和尺寸可继续独立调整。
 - 任务栏通知区域与 EXE 使用同一款「办」字图标，珊瑚红外框搭配造字工房悦黑常规体。
 
@@ -36,16 +37,16 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 | 规则集 | Stable releases from snapshot，已激活 |
 | Actions | Stable release 工作流已注册，state=active |
 | 本地 | D:\WorkSpace\HanLin-ToDo，日常开发在 snapshot |
-| 打包 | 支持 Windows x64 自包含单文件构建，命令见 README |
+| 打包 | Windows x64 自包含单文件使用 `tools/Publish-Windows.ps1` 发布到 `D:\桌面\HanLin-ToDo` |
 | 桌面验证 | 上一版在 Windows 11 24H2 验证了桌面层级、Win+D、位置锁定、内联编辑、快捷录入和托盘注册 |
 | 启动验证 | 验证了当前用户 Run 启动项的写入与关闭，按该命令重开可恢复任务、位置、锁定和主题 |
 | 位置操作 | 解锁后仅标题栏可拖动便签，锁图标用于切换锁定状态，任务三点手柄用于排序 |
 | 尺寸和字体 | 边缘及右下角可调宽高。设置支持三档尺寸、独立界面比例以及标题和正文字体选项 |
 | 截止日期 | 快捷录入、便签内编辑和右键日期默认按天。需要时可加具体时刻，旧版日期时间仍可读取 |
 | 任务管理 | 支持置顶、手动拖动排序、自绘右键菜单、分组清单、搜索、批量操作、回收站及 Markdown 导出 |
-| 本地数据 | 兼容旧版 Markdown 清单，清单和任务详情保存在 HTML 注释中，回收站记录随任务文件备份 |
+| 本地数据 | `todo.md` 默认位于 EXE 同级 `data`，支持切换工作目录。目标缺少文件时可复制旧任务，任务详情和回收站随 Markdown 保存 |
 | 任务管理验证 | 上一版实测连续录入、分组清单、日历、任务详情、循环、批量恢复、导出和重开 |
-| 本次验证 | 从源码核对标题栏、边缘和任务控件的拖动判定，完成 Release 编译打包，窗口交互由用户验证 |
+| 本次验证 | 核对工作目录读取、切换和旧任务复制的源码路径，完成 Release 编译、发布和 EXE 校验，窗口交互由用户验证 |
 
 ## 三、分支模型
 
@@ -87,6 +88,9 @@ git add -A
 git commit -m "..."
 git push origin snapshot
 
+# 本地发布 EXE
+.\tools\Publish-Windows.ps1
+
 # 发布
 gh pr create --base main --head snapshot --title "..." --body "..."
 # 等 snapshot-release-source 变绿后合并
@@ -99,7 +103,8 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 
 ## 七、开发约定
 
-- 运行时数据位于 `%LOCALAPPDATA%\HanLin-ToDo`。`todo.md` 保存任务、清单和回收站等内容，`settings.json` 保存位置、锁定、外观、当前清单和排序。开发验证可用 `--data-dir <目录>` 隔离用户数据。
+- `todo.md` 保存在所选工作目录。默认在 EXE 同级 `data`，已有旧版任务会在首次使用时复制到缺少任务文件的目标。`%LOCALAPPDATA%\HanLin-ToDo\settings.json` 保存工作目录选择、位置、锁定和外观等设置。开发验证可用 `--data-dir <目录>` 固定独立的任务和设置目录。
+- 每次交付本地新版时使用 `tools/Publish-Windows.ps1`，将最新 EXE 保存到 `D:\桌面\HanLin-ToDo`。
 - `DesktopSurface` 使用桌面拥有的工具窗口和窗口层级管理便签。调试时发现 Windows 11 24H2 的跨进程桌面子窗口存在画面合成问题，首版采用可独立合成的桌面工具窗口。
 - 图标生成器是 `tools/New-TaskbarIcon.py`。应用构建使用已生成的 ICO。字体仅用于本地生成。
 - 提交信息用英文祈使句（现有提交：`Initialize stable release rules`、`Record project goals and development workflow`）。
@@ -117,6 +122,7 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 - [x] 增加尺寸方案与悦黑标题，支持按天保存截止日期
 - [x] 增加三点拖动排序、置顶、输入栏日历和自绘菜单，调整文字渲染和控件动效
 - [x] 将移动便签的拖动区域限制为解锁时的标题栏
+- [x] 支持自选 Markdown 工作目录，并将本地 EXE 发布到固定目录
 - [ ] 首次 snapshot → main 的 PR 演练，验证规则集与检查确实生效
 - [ ] 视需要补充 LICENSE、CONTRIBUTING
 
@@ -141,3 +147,4 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 | 2026-11-24 | 调整尺寸、标题和截止日期 | 新增三档尺寸和悦黑标题，松开鼠标即结束尺寸调整，日历选择默认按天保存 |
 | 2026-11-24 | 优化便签交互与文字渲染 | 任务可拖动和置顶，输入栏可选截止日期，统一自绘菜单和日历，阴影与文字分层 |
 | 2026-11-24 | 限制便签的移动区域 | 解锁后只从标题栏拖动，避免操作内容区时误移动便签 |
+| 2026-11-24 | 增加工作目录与固定发布位置 | 默认 EXE 同级 data，支持选择目录和复制旧清单，新 EXE 统一发布到 D:\桌面\HanLin-ToDo |

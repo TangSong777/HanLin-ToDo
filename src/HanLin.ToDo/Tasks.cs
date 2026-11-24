@@ -434,7 +434,17 @@ internal sealed partial class TaskFile(string path)
         return Parse(after);
     }
 
-    private string ReadText() => File.Exists(Path) ? File.ReadAllText(Path, Utf8) : "";
+    private string ReadText()
+    {
+        try
+        {
+            return File.ReadAllText(Path, Utf8);
+        }
+        catch (FileNotFoundException)
+        {
+            return "";
+        }
+    }
 
     private static TodoSnapshot Parse(string text)
     {

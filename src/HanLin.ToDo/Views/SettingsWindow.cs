@@ -1,10 +1,12 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
+using Microsoft.Win32;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 
@@ -23,13 +25,14 @@ internal sealed class SettingsWindow : Window
     private readonly Slider zoom;
     private readonly TextBox width;
     private readonly TextBox height;
+    private readonly TextBox workingDirectory;
     private readonly CheckBox startup;
     private readonly TextBlock message = Ui.Text("", 12, "OverdueBrush");
     private int displayedWidth;
     private int displayedHeight;
 
-    public SettingsWindow(NoteTheme theme, bool startWithWindows, Action openTasks,
-        Func<NoteTheme, bool, string?> save)
+    public SettingsWindow(NoteTheme theme, bool startWithWindows, string currentDirectory, string? defaultDirectory,
+        Action openTasks, Func<NoteTheme, bool, string, string?> save)
     {
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 便签设置";
@@ -46,8 +49,9 @@ internal sealed class SettingsWindow : Window
         var frame = new DockPanel();
         Content = frame;
 
+        workingDirectory = AddWorkingDirectory(currentDirectory, defaultDirectory);
         var heading = Ui.Heading("尺寸和比例", 20);
-        heading.Margin = new Thickness(0, 0, 0, 7);
+        heading.Margin = new Thickness(0, 13, 0, 7);
         fields.Children.Add(heading);
         fields.Children.Add(SizePresets());
 
@@ -119,7 +123,7 @@ internal sealed class SettingsWindow : Window
             };
             string? error = !NoteTheme.IsColor(updated.Accent) || !NoteTheme.IsColor(updated.Surface)
                 ? "请输入 # 加六位颜色值，也可以点击色块选择。"
-                : save(updated.Normalize(), startup.IsChecked == true);
+                : save(updated.Normalize(), startup.IsChecked == true, workingDirectory.Text);
             if (error is null)
                 Close();
             else
@@ -131,6 +135,40 @@ internal sealed class SettingsWindow : Window
         DockPanel.SetDock(buttons, Dock.Bottom);
         frame.Children.Add(buttons);
         frame.Children.Add(new ScrollViewer { Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+    }
+
+    private TextBox AddWorkingDirectory(string currentDirectory, string? defaultDirectory)
+    {
+        fields.Children.Add(Ui.Heading("工作目录", 20));
+        var input = Ui.Input("工作目录", currentDirectory);
+        input.IsReadOnly = defaultDirectory is null;
+        input.ToolTip = "存放 todo.md 的文件夹";
+        var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+        if (defaultDirectory is not null)
+        {
+            var reset = Ui.Button("默认", () => input.Text = defaultDirectory);
+            reset.ToolTip = "使用 EXE 旁的 data 文件夹";
+            DockPanel.SetDock(reset, Dock.Right);
+            row.Children.Add(reset);
+            var choose = Ui.Button("选择…", () =>
+            {
+                var dialog = new OpenFolderDialog { Title = "选择工作目录" };
+                if (Directory.Exists(input.Text.Trim()))
+                    dialog.InitialDirectory = input.Text.Trim();
+                if (dialog.ShowDialog(this) == true)
+                    input.Text = dialog.FolderName;
+            });
+            DockPanel.SetDock(choose, Dock.Right);
+            row.Children.Add(choose);
+        }
+        row.Children.Add(input);
+        fields.Children.Add(row);
+        var help = Ui.Text(defaultDirectory is null ? "由启动参数指定。"
+            : "已有 todo.md 时直接读取，否则复制当前任务文件。", 12, "MutedBrush");
+        help.TextWrapping = TextWrapping.Wrap;
+        help.Margin = new Thickness(0, 4, 0, 0);
+        fields.Children.Add(help);
+        return input;
     }
 
     public void FollowWindowSize(NoteTheme theme)

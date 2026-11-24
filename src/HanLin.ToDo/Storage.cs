@@ -64,6 +64,8 @@ internal sealed record NotePreferences
     public bool ShowCompleted { get; init; }
     public string TaskView { get; init; } = TodoViews.All;
     public TaskSort Sort { get; init; } = TaskSort.Due;
+    public string? WorkingDirectory { get; init; }
+    public bool LegacyTasksHandled { get; init; }
     public NoteTheme Theme { get; init; } = new();
 }
 
@@ -95,20 +97,79 @@ internal sealed class PreferencesFile(string path)
         AtomicFile.Write(path, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
 }
 
+internal sealed class TaskLocation(string profileDirectory, bool commandLineOverride)
+{
+    private const string FileName = "todo.md";
+
+    public bool CanChoose { get; } = !commandLineOverride;
+    public string DefaultDirectory { get; } = commandLineOverride
+        ? profileDirectory : Path.Combine(AppContext.BaseDirectory, "data");
+    public string? LegacyFile { get; } = commandLineOverride ? null : Path.Combine(profileDirectory, FileName);
+
+    public string Resolve(string? configured)
+    {
+        if (!CanChoose || string.IsNullOrWhiteSpace(configured))
+            return DefaultDirectory;
+        string path = Environment.ExpandEnvironmentVariables(configured.Trim().Trim('"'));
+        if (!Path.IsPathFullyQualified(path))
+            throw new ArgumentException("请输入完整的工作目录路径。");
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
+
+    public static TaskFile FileIn(string directory) => new(Path.Combine(directory, FileName));
+
+    public static TodoSnapshot Prepare(string directory, TaskFile file, string? seed)
+    {
+        Directory.CreateDirectory(directory);
+        if (seed is not null)
+            AtomicFile.CopyIfMissing(seed, file.Path);
+        return file.Read();
+    }
+}
+
 internal static class AtomicFile
 {
-    public static void Write(string path, string text, Action? beforeReplace = null)
+    public static void Write(string path, string text, Action? beforeReplace = null) =>
+        Write(path, stream => stream.Write(Encoding.UTF8.GetBytes(text)), overwrite: true, beforeReplace: beforeReplace);
+
+    public static void CopyIfMissing(string source, string destination)
+    {
+        if (File.Exists(destination))
+            return;
+        FileStream input;
+        try
+        {
+            input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return;
+        }
+        using (input)
+        {
+            try
+            {
+                Write(destination, stream => input.CopyTo(stream), overwrite: false);
+            }
+            catch (IOException) when (File.Exists(destination))
+            {
+                // A task file appeared while the copy was prepared.
+            }
+        }
+    }
+
+    private static void Write(string path, Action<FileStream> fill, bool overwrite, Action? beforeReplace = null)
     {
         string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                stream.Write(Encoding.UTF8.GetBytes(text));
+                fill(stream);
                 stream.Flush(flushToDisk: true);
             }
             beforeReplace?.Invoke();
-            File.Move(temp, path, overwrite: true);
+            File.Move(temp, path, overwrite);
         }
         finally
         {

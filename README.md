@@ -14,9 +14,10 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。
 - 拖动便签边缘或右下角调整宽高。锁定位置时仍可从右侧、底部或右下角调整。窗口较小时，任务列表在标题与底部之间滚动。
 - 便签设置提供紧凑（300 × 258）、标准（370 × 348）和宽敞（462 × 428）三档。选好后可继续单独调宽、高、界面比例、正文字号和行间留白。界面比例会一起缩放文字、控件与间距。
 - 标题默认用本机安装的造字工房悦黑常规体，正文默认用微软雅黑。标题字体可在设置中改为跟随正文，本机缺少悦黑时会自动跟随正文。
+- 在「便签设置 → 工作目录」选择存放 `todo.md` 的文件夹。所选目录已有 `todo.md` 时直接读取，否则复制当前任务文件。点「默认」可选回 EXE 同级的 `data` 文件夹，保存后立即使用。
 - 程序启动后恢复位置、尺寸、界面比例、锁定状态、外观和任务。便签设置可开启登录自启，通知区域右键菜单可显示、隐藏或退出。
 
-首次运行时便签在主屏幕右上方。启动选项初始关闭，可以在便签设置中开启。任务和设置分别保存在 `%LOCALAPPDATA%\HanLin-ToDo\todo.md` 和同一目录下的 `settings.json`。设置及托盘菜单都有「打开任务文件」入口。提醒由正在运行的 HanLin-ToDo 通过 Windows 通知区域发送。本地附件保存文件路径。
+首次运行时便签在主屏幕右上方，程序会自动创建 EXE 同级的 `data` 文件夹。升级后首次启动会在目标缺少 `todo.md` 时复制旧版的 `%LOCALAPPDATA%\HanLin-ToDo\todo.md`。工作目录选择、位置和外观仍记录在 `%LOCALAPPDATA%\HanLin-ToDo\settings.json`。设置及托盘菜单都有「打开任务文件」入口。提醒由正在运行的 HanLin-ToDo 通过 Windows 通知区域发送。本地附件保存文件路径。
 
 任务文件示例
 
@@ -34,10 +35,10 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。
 
 ```powershell
 dotnet run --project .\src\HanLin.ToDo
-dotnet publish .\src\HanLin.ToDo -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none
+.\tools\Publish-Windows.ps1
 ```
 
-自包含的 `HanLin-ToDo.exe` 可直接运行。启用登录自启后，Windows 启动项会引用当时的 EXE 路径。移动程序后，在新位置运行一次并保存启动设置。
+本地发布默认更新 `D:\桌面\HanLin-ToDo\HanLin-ToDo.exe`，可用 `-OutputDirectory` 指定其他输出目录。已有 EXE 无法替换时，脚本会在同一目录生成带时间戳的新版。打包只写入 EXE。启用登录自启后，Windows 启动项会引用当时的 EXE 路径。移动程序后，在新位置运行一次并保存启动设置。
 
 图标用本机安装的造字工房悦黑常规体绘制「办」，沿用原输入法图标的珊瑚红外框。仓库包含生成好的多尺寸 ICO。需要重新绘制时，用 Python 和 Pillow 运行 `tools/New-TaskbarIcon.py`，传入本机字体文件和 ICO 输出路径。
 

@@ -44,6 +44,7 @@ internal sealed partial class NoteView : Border
     public event Action<TodoItem, bool>? DoneChanged;
     public Func<TodoItem, TodoDraft, string?>? SaveEdit { get; set; }
     public bool IsLocked => settings.Locked;
+    public bool IsEditingTask => editor is not null;
 
     public NoteView()
     {
