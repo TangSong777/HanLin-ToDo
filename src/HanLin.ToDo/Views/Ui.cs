@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -9,6 +10,11 @@ namespace HanLin.ToDo;
 
 internal static class Ui
 {
+    private static readonly Lazy<FontFamily?> YueHei = new(() => Fonts.SystemFontFamilies.FirstOrDefault(family =>
+        family.Source is "MF YueHei (Noncommercial)" or "造字工房悦黑（非商用）"));
+
+    public static bool HasYueHei => YueHei.Value is not null;
+
     public static void SetTheme(NoteTheme theme)
     {
         Color surface = ColorFrom(theme.Surface);
@@ -16,6 +22,9 @@ internal static class Ui
         Color ink = ContrastInk(surface);
         bool pale = Luminance(surface) > 0.65;
         var resources = Application.Current.Resources;
+        var titleFont = theme.TitleFont == NoteTitleFont.YueHei ? YueHei.Value : null;
+        resources["TitleFontFamily"] = titleFont ?? new FontFamily(theme.Font);
+        resources["TitleFontWeight"] = titleFont is null ? FontWeights.SemiBold : FontWeights.Normal;
         resources["SurfaceBrush"] = Brush(surface);
         resources["HeaderBrush"] = new LinearGradientBrush(
             [new(Mix(surface, accent, 0.17), 0), new(surface, 0.33), new(surface, 1)],
@@ -49,6 +58,14 @@ internal static class Ui
         if (brush is not null)
             block.SetResourceReference(TextBlock.ForegroundProperty, brush);
         return block;
+    }
+
+    public static TextBlock Heading(string text, double size)
+    {
+        var heading = Text(text, size, "InkBrush");
+        heading.SetResourceReference(TextBlock.FontFamilyProperty, "TitleFontFamily");
+        heading.SetResourceReference(TextBlock.FontWeightProperty, "TitleFontWeight");
+        return heading;
     }
 
     public static Button Button(string label, Action pressed, string? icon = null, bool primary = false)

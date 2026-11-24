@@ -45,7 +45,7 @@ internal sealed partial class NoteView
 
     private static readonly (TaskSort Mode, string Label)[] SortChoices =
     [
-        (TaskSort.Due, "截止时间"), (TaskSort.Important, "重要程度"), (TaskSort.Title, "任务名称"),
+        (TaskSort.Due, "截止日期"), (TaskSort.Important, "重要程度"), (TaskSort.Title, "任务名称"),
         (TaskSort.Newest, "最新创建"), (TaskSort.Today, "今天优先"), (TaskSort.Manual, "手动顺序")
     ];
 
@@ -227,7 +227,7 @@ internal sealed partial class NoteView
         {
             var suggestions = new MenuItem { Header = "今日建议" };
             foreach (var item in snapshot.Items.Where(item => !item.Done && !TodoViews.IsToday(item, DateTime.Now))
-                .OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due ?? DateTime.MaxValue).Take(8))
+                .OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue).Take(8))
                 suggestions.Items.Add(Menu(item.Title, () => DetailsRequested?.Invoke(item,
                     details => details with { MyDay = DateOnly.FromDateTime(DateTime.Now) })));
             suggestions.IsEnabled = suggestions.Items.Count > 0;
@@ -261,8 +261,8 @@ internal sealed partial class NoteView
         foreach (var list in snapshot.Catalog.Lists)
             move.Items.Add(Menu(list.Name, () => MoveToList(item, list.Id), item.Details.ListId == list.Id));
         menu.Items.Add(move);
-        menu.Items.Add(Menu("今天截止", () => ChangeDue(item, DateTime.Today.AddDays(1).AddMinutes(-1))));
-        menu.Items.Add(Menu("明天截止", () => ChangeDue(item, DateTime.Today.AddDays(2).AddMinutes(-1))));
+        menu.Items.Add(Menu("今天截止", () => ChangeDue(item, new TodoDeadline(DateOnly.FromDateTime(DateTime.Today)))));
+        menu.Items.Add(Menu("明天截止", () => ChangeDue(item, new TodoDeadline(DateOnly.FromDateTime(DateTime.Today.AddDays(1))))));
         if (item.Due is not null)
             menu.Items.Add(Menu("清除截止日期", () => ChangeDue(item, null)));
         menu.Items.Add(Menu("复制任务", () => DuplicateRequested?.Invoke(item)));
@@ -275,7 +275,7 @@ internal sealed partial class NoteView
         menu.Items.Add(Menu("移到回收站", () => DeleteRequested?.Invoke(item)));
     }
 
-    private void ChangeDue(TodoItem item, DateTime? due) => SaveEdit?.Invoke(item, new TodoDraft(item.Title, due, item.Details));
+    private void ChangeDue(TodoItem item, TodoDeadline? due) => SaveEdit?.Invoke(item, new TodoDraft(item.Title, due, item.Details));
     private void ToggleImportance(TodoItem item) => DetailsRequested?.Invoke(item, details => details with { Important = !details.Important });
     private void MoveToList(TodoItem item, string? id) => DetailsRequested?.Invoke(item, details => details with { ListId = id });
 

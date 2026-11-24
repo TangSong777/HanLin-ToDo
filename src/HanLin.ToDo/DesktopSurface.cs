@@ -39,8 +39,9 @@ internal sealed class DesktopSurface : IDisposable
         };
         dragTimer.Tick += (_, _) =>
         {
-            MoveFromCursor();
-            if (!Native.PrimaryButtonDown())
+            if (Native.PrimaryButtonDown())
+                MoveFromCursor();
+            else
                 EndDrag();
         };
         view.PreviewMouseLeftButtonDown += BeginDrag;

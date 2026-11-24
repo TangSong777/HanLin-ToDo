@@ -82,8 +82,7 @@ internal sealed partial class NoteView : Border
         actions.Children.Add(Ui.Button("便签设置", () => SettingsRequested?.Invoke(), "settings"));
         header.Children.Add(actions);
 
-        var title = Ui.Text("待办");
-        title.FontWeight = FontWeights.SemiBold;
+        var title = Ui.Heading("待办", NoteTheme.DefaultTextSize + 4);
         title.VerticalAlignment = VerticalAlignment.Center;
         var caption = new StackPanel { Orientation = Orientation.Horizontal };
         dragGrip = Ui.Glyph("grip");
@@ -186,7 +185,7 @@ internal sealed partial class NoteView : Border
         if (!initialized || theme.Size != previous.Theme.Size)
         {
             TextElement.SetFontSize(this, theme.Size);
-            Title.FontSize = theme.Size + 2;
+            Title.FontSize = theme.Size + 4;
         }
         dragGrip.Visibility = settings.Locked ? Visibility.Hidden : Visibility.Visible;
         string label = settings.Locked ? "位置已锁定，点击解锁" : "锁定位置";
@@ -266,7 +265,7 @@ internal sealed partial class NoteView : Border
     {
         DateTime now = DateTime.Now;
         if (now.Date != lastRender.Date ||
-            snapshot.Items.Any(item => !item.Done && item.Due is { } due && due > lastRender && due <= now))
+            snapshot.Items.Any(item => !item.Done && item.Due is { } due && due.IsOverdue(now) && !due.IsOverdue(lastRender)))
             Render();
     }
 
@@ -356,9 +355,10 @@ internal sealed partial class NoteView : Border
 
         if (!item.Done && item.Due is { } due)
         {
-            bool overdue = due <= lastRender;
-            string date = due.Date == lastRender.Date ? "今天 " + due.ToString("HH:mm", CultureInfo.InvariantCulture) :
-                due.ToString("MM/dd HH:mm", CultureInfo.InvariantCulture);
+            bool overdue = due.IsOverdue(lastRender);
+            string date = due.Date == DateOnly.FromDateTime(lastRender) ? "今天" : due.Date.ToString("MM/dd", CultureInfo.InvariantCulture);
+            if (due.Time is { } clock)
+                date += " " + clock.ToString("HH:mm", CultureInfo.InvariantCulture);
             var time = Ui.Text(overdue ? "逾期 · " + date : date, Math.Max(12, settings.Theme.Size - 3),
                 overdue ? "OverdueBrush" : "MutedBrush");
             if (overdue)

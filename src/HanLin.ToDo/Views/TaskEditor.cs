@@ -14,7 +14,7 @@ internal sealed class TaskEditor : Border
 {
     private static readonly CultureInfo DateCulture = CultureInfo.GetCultureInfo("zh-CN");
     private static readonly string[] TimeFormats = ["H:mm", "HH:mm"];
-    private const string DefaultTime = "23:59";
+    private const string AllDay = "全天";
     private readonly TextBox title;
     private readonly DatePicker date;
     private readonly ComboBox time;
@@ -29,7 +29,7 @@ internal sealed class TaskEditor : Border
         this.save = save;
         this.cancel = cancel;
         string name = draft.Title;
-        DateTime? due = draft.Due;
+        TodoDeadline? due = draft.Due;
         CornerRadius = new CornerRadius(8);
         Padding = new Thickness(9);
         Margin = new Thickness(0, 3, 0, 4);
@@ -41,7 +41,7 @@ internal sealed class TaskEditor : Border
         Child = fields;
         title = Ui.Input("任务", name);
         title.MaxLength = 300;
-        fields.Children.Add(Ui.Text("任务"));
+        fields.Children.Add(Ui.Heading("任务", 14));
         fields.Children.Add(title);
 
         date = new DatePicker
@@ -51,8 +51,8 @@ internal sealed class TaskEditor : Border
             FirstDayOfWeek = DayOfWeek.Monday,
             Tag = "打开日历",
             SelectedDateFormat = DatePickerFormat.Short,
-            DisplayDate = due?.Date ?? DateTime.Today,
-            SelectedDate = due?.Date
+            DisplayDate = due?.Date.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
+            SelectedDate = due?.Date.ToDateTime(TimeOnly.MinValue)
         };
         date.AutomationName("截止日期");
         time = new ComboBox
@@ -62,13 +62,13 @@ internal sealed class TaskEditor : Border
             IsTextSearchEnabled = false,
             MinHeight = 30,
             MaxDropDownHeight = 182,
-            ItemsSource = Enumerable.Range(0, 48)
+            ItemsSource = new[] { AllDay }.Concat(Enumerable.Range(0, 48)
                 .Select(slot => TimeOnly.MinValue.AddMinutes(slot * 30).ToString("HH:mm", CultureInfo.InvariantCulture))
-                .Append(DefaultTime),
-            Text = due?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? DefaultTime
+                .Append("23:59")),
+            Text = due?.Time?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? AllDay
         };
         time.AutomationName("截止时间");
-        time.ToolTip = "选择或输入时间，默认 23:59。";
+        time.ToolTip = "默认按天截止。可选择或输入 24 小时制时间。";
 
         var scheduleLabel = new DockPanel { Margin = new Thickness(0, 5, 0, 1) };
         var clear = Ui.Button("清除日期", ClearDeadline);
@@ -94,10 +94,11 @@ internal sealed class TaskEditor : Border
         detailsEditor = new TaskDetailsEditor(draft.Details, catalog);
         var details = new Expander
         {
-            Header = "任务详情",
+            Header = Ui.Heading("任务详情", 13),
             Content = detailsEditor,
             Margin = new Thickness(0, 6, 0, 0)
         };
+        details.AutomationName("任务详情");
         fields.Children.Add(details);
 
         error = Ui.Text("", 12, "OverdueBrush");
@@ -173,7 +174,7 @@ internal sealed class TaskEditor : Border
             date.Focus();
             return;
         }
-        DateTime? due = null;
+        TodoDeadline? due = null;
         string dateText = date.Text.Trim();
         if (dateText.Length > 0)
         {
@@ -184,14 +185,18 @@ internal sealed class TaskEditor : Border
                 return;
             }
             string timeText = time.Text.Trim();
-            if (!TimeOnly.TryParseExact(timeText.Length == 0 ? DefaultTime : timeText, TimeFormats,
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var clock))
+            TimeOnly? clock = null;
+            if (timeText.Length > 0 && timeText != AllDay)
             {
-                ShowError("请输入 24 小时制时间，例如 18:30。");
-                time.Focus();
-                return;
+                if (!TimeOnly.TryParseExact(timeText, TimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
+                {
+                    ShowError("请选择全天，或输入 24 小时制时间，例如 18:30。");
+                    time.Focus();
+                    return;
+                }
+                clock = exact;
             }
-            due = day.Date.Add(clock.ToTimeSpan());
+            due = new TodoDeadline(DateOnly.FromDateTime(day), clock);
         }
 
         if (!detailsEditor.TryRead(due, out var details, out string? detailError))
@@ -209,7 +214,7 @@ internal sealed class TaskEditor : Border
     {
         date.SelectedDate = null;
         date.Text = "";
-        time.Text = DefaultTime;
+        time.Text = AllDay;
         time.IsEnabled = false;
         invalidDate = false;
         error.Visibility = Visibility.Collapsed;
@@ -231,7 +236,7 @@ internal sealed class CaptureWindow : Window
         Title = "HanLin-ToDo · 新建待办";
         FontFamily = new System.Windows.Media.FontFamily(theme.Font);
         Icon = Ui.AppIcon();
-        Width = 350;
+        Width = 384;
         SizeToContent = SizeToContent.Height;
         MaxHeight = SystemParameters.WorkArea.Height - 32;
         ResizeMode = ResizeMode.NoResize;

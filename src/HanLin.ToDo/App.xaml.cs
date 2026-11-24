@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -258,7 +257,7 @@ public partial class App : Application
             {
                 markdown.Append(item.Done ? "- [x] " : "- [ ] ").Append(item.Title);
                 if (item.Due is { } due)
-                    markdown.Append(" 📅 ").Append(due.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+                    markdown.Append(" 📅 ").Append(due.ToFileText());
                 if (item.Details.Important)
                     markdown.Append(" ⭐");
                 if (item.Details.Tags is { Length: > 0 } tags)
@@ -353,7 +352,8 @@ public partial class App : Application
         try
         {
             storage.Save(next);
-            if (next.Theme.Accent != preferences.Theme.Accent || next.Theme.Surface != preferences.Theme.Surface)
+            if (next.Theme.Accent != preferences.Theme.Accent || next.Theme.Surface != preferences.Theme.Surface
+                || next.Theme.Font != preferences.Theme.Font || next.Theme.TitleFont != preferences.Theme.TitleFont)
                 Ui.SetTheme(next.Theme);
             preferences = next;
             note.Apply(preferences);

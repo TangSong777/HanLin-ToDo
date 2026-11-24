@@ -6,10 +6,14 @@ using System.Text.Json;
 
 namespace HanLin.ToDo;
 
+internal enum NoteTitleFont { YueHei, Body }
+
 internal sealed record NoteTheme
 {
-    public const int DefaultWidth = 336;
-    public const int DefaultHeight = 308;
+    public const int DefaultWidth = 370;
+    public const int DefaultHeight = 348;
+    public const int DefaultTextSize = 16;
+    public const int DefaultRowPadding = 6;
     public const int MinimumScale = 75;
     public const int MaximumScale = 160;
     public const int MaximumDimension = 16384;
@@ -17,9 +21,10 @@ internal sealed record NoteTheme
     public string Accent { get; init; } = "#E48887";
     public string Surface { get; init; } = "#FFFCF9";
     public string Font { get; init; } = "Microsoft YaHei UI";
-    public int Size { get; init; } = 16;
+    public NoteTitleFont TitleFont { get; init; } = NoteTitleFont.YueHei;
+    public int Size { get; init; } = DefaultTextSize;
     public int Radius { get; init; } = 16;
-    public int Padding { get; init; } = 8;
+    public int Padding { get; init; } = DefaultRowPadding;
     public int Width { get; init; } = DefaultWidth;
     public int Height { get; init; } = DefaultHeight;
     public int Scale { get; init; } = 100;
@@ -34,6 +39,7 @@ internal sealed record NoteTheme
             Accent = IsColor(Accent) ? Accent : "#E48887",
             Surface = IsColor(Surface) ? Surface : "#FFFCF9",
             Font = Font is "SimSun" ? Font : "Microsoft YaHei UI",
+            TitleFont = Enum.IsDefined(TitleFont) ? TitleFont : NoteTitleFont.YueHei,
             Size = Math.Clamp(Size, 13, 22),
             Radius = Math.Clamp(Radius, 0, 24),
             Padding = Math.Clamp(Padding, 2, 14),

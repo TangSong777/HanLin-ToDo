@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Drawing = System.Drawing;
@@ -15,6 +16,7 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox accent;
     private readonly TextBox surface;
     private readonly ComboBox font;
+    private readonly ComboBox titleFont;
     private readonly Slider size;
     private readonly Slider radius;
     private readonly Slider padding;
@@ -31,7 +33,7 @@ internal sealed class SettingsWindow : Window
     {
         Title = "HanLin-ToDo · 便签设置";
         Icon = Ui.AppIcon();
-        Width = 382;
+        Width = 410;
         SizeToContent = SizeToContent.Height;
         MaxHeight = SystemParameters.WorkArea.Height - 24;
         ResizeMode = ResizeMode.NoResize;
@@ -43,44 +45,31 @@ internal sealed class SettingsWindow : Window
         var frame = new DockPanel();
         Content = frame;
 
-        var heading = Ui.Text("尺寸和比例", 19, "InkBrush");
-        heading.FontWeight = FontWeights.SemiBold;
+        var heading = Ui.Heading("尺寸和比例", 20);
         heading.Margin = new Thickness(0, 0, 0, 7);
         fields.Children.Add(heading);
+        fields.Children.Add(SizePresets());
 
         displayedWidth = theme.Width;
         displayedHeight = theme.Height;
-        var dimensions = new Grid();
-        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(12) });
-        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        var dimensions = TwoColumns();
         width = AddDimension(dimensions, "宽度", theme.Width, 0);
         height = AddDimension(dimensions, "高度", theme.Height, 2);
         fields.Children.Add(dimensions);
         zoom = Scale("界面比例", theme.Scale, NoteTheme.MinimumScale, NoteTheme.MaximumScale, "%", 5);
-        var resetSize = Ui.Button("恢复默认尺寸和比例", () =>
-        {
-            width.Text = DimensionText(NoteTheme.DefaultWidth);
-            height.Text = DimensionText(NoteTheme.DefaultHeight);
-            zoom.Value = 100;
-        });
-        resetSize.HorizontalAlignment = HorizontalAlignment.Left;
-        resetSize.Margin = new Thickness(0, 3, 0, 8);
-        fields.Children.Add(resetSize);
 
-        var appearance = Ui.Text("颜色和文字", 17, "InkBrush");
-        appearance.FontWeight = FontWeights.SemiBold;
-        appearance.Margin = new Thickness(0, 5, 0, 1);
+        var appearance = Ui.Heading("颜色和文字", 18);
+        appearance.Margin = new Thickness(0, 13, 0, 1);
         fields.Children.Add(appearance);
         accent = ColorField("主色", theme.Accent);
         surface = ColorField("底色", theme.Surface);
-        font = new ComboBox { Margin = new Thickness(0, 3, 0, 0), MinHeight = 27 };
-        font.Items.Add("微软雅黑");
-        font.Items.Add("宋体");
-        font.SelectedIndex = theme.Font == "SimSun" ? 1 : 0;
-        font.AutomationName("字体");
-        AddField("字体", font);
-        size = Scale("字号", theme.Size, 13, 22);
+        var typefaces = TwoColumns();
+        typefaces.Margin = new Thickness(0, 7, 0, 0);
+        font = AddFont(typefaces, "正文字体", theme.Font == "SimSun" ? 1 : 0, 0, "微软雅黑", "宋体");
+        titleFont = AddFont(typefaces, "标题字体", theme.TitleFont == NoteTitleFont.Body ? 1 : 0, 2,
+            Ui.HasYueHei ? "悦黑体" : "悦黑体（本机未安装）", "跟随正文");
+        fields.Children.Add(typefaces);
+        size = Scale("正文字号", theme.Size, 13, 22);
         radius = Scale("圆角", theme.Radius, 0, 24);
         padding = Scale("行间留白", theme.Padding, 2, 14);
 
@@ -119,6 +108,7 @@ internal sealed class SettingsWindow : Window
                 Accent = accent.Text.Trim(),
                 Surface = surface.Text.Trim(),
                 Font = font.SelectedIndex == 1 ? "SimSun" : "Microsoft YaHei UI",
+                TitleFont = titleFont.SelectedIndex == 1 ? NoteTitleFont.Body : NoteTitleFont.YueHei,
                 Size = (int)size.Value,
                 Radius = (int)radius.Value,
                 Padding = (int)padding.Value,
@@ -150,6 +140,57 @@ internal sealed class SettingsWindow : Window
             height.Text = DimensionText(theme.Height);
         displayedWidth = theme.Width;
         displayedHeight = theme.Height;
+    }
+
+    private UniformGrid SizePresets()
+    {
+        var group = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 9) };
+        var presets = new[]
+        {
+            ("紧凑", 300, 258, 14, 4),
+            ("标准", NoteTheme.DefaultWidth, NoteTheme.DefaultHeight, NoteTheme.DefaultTextSize, NoteTheme.DefaultRowPadding),
+            ("宽敞", 462, 428, 17, 8)
+        };
+        foreach (var (label, presetWidth, presetHeight, textSize, rowPadding) in presets)
+        {
+            var option = Ui.Button(label, () =>
+            {
+                width.Text = DimensionText(presetWidth);
+                height.Text = DimensionText(presetHeight);
+                zoom.Value = 100;
+                size.Value = textSize;
+                padding.Value = rowPadding;
+            });
+            option.ToolTip = $"{presetWidth} × {presetHeight} · 100% 界面比例";
+            option.Margin = new Thickness(0, 0, 5, 0);
+            option.SetResourceReference(Control.BackgroundProperty, "TintBrush");
+            group.Children.Add(option);
+        }
+        return group;
+    }
+
+    private static Grid TwoColumns()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(12) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        return grid;
+    }
+
+    private static ComboBox AddFont(Grid group, string label, int index, int column, params string[] options)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(Ui.Text(label, 13, "MutedBrush"));
+        var box = new ComboBox
+        {
+            ItemsSource = options, SelectedIndex = index, MinHeight = 27, Margin = new Thickness(0, 3, 0, 0)
+        };
+        box.AutomationName(label);
+        stack.Children.Add(box);
+        Grid.SetColumn(stack, column);
+        group.Children.Add(stack);
+        return box;
     }
 
     private static TextBox AddDimension(Grid group, string label, int value, int column)

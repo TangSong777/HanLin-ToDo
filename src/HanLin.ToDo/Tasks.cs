@@ -13,6 +13,35 @@ namespace HanLin.ToDo;
 internal enum TaskRepeat { None, Daily, Weekdays, Weekly, Monthly, Yearly }
 internal enum TaskSort { Due, Important, Title, Newest, Manual, Today }
 
+internal readonly record struct TodoDeadline(DateOnly Date, TimeOnly? Time = null)
+{
+    private const string DateFormat = "yyyy-MM-dd";
+    private const string DateTimeFormat = "yyyy-MM-dd HH:mm";
+
+    public DateTime At => Date.ToDateTime(Time ?? TimeOnly.MinValue);
+    public DateTime SortAt => Date.ToDateTime(Time ?? TimeOnly.MaxValue);
+    public bool IsOverdue(DateTime now) => Time is null ? Date < DateOnly.FromDateTime(now) : At <= now;
+    public string ToFileText() => Time is null ? Date.ToString(DateFormat, CultureInfo.InvariantCulture)
+        : At.ToString(DateTimeFormat, CultureInfo.InvariantCulture);
+
+    public static bool TryParse(string value, out TodoDeadline deadline)
+    {
+        var culture = CultureInfo.InvariantCulture;
+        if (DateOnly.TryParseExact(value, DateFormat, culture, DateTimeStyles.None, out var date))
+        {
+            deadline = new(date);
+            return true;
+        }
+        if (DateTime.TryParseExact(value, DateTimeFormat, culture, DateTimeStyles.None, out var exact))
+        {
+            deadline = new(DateOnly.FromDateTime(exact), TimeOnly.FromDateTime(exact));
+            return true;
+        }
+        deadline = default;
+        return false;
+    }
+}
+
 internal sealed record TodoStep(string Title, bool Done);
 internal sealed record TodoList(string Id, string Name, string? Group = null, string? Memo = null);
 internal sealed record DeletedTodo(string Id, string Title, string Line, string? BatchId = null);
@@ -37,8 +66,8 @@ internal sealed record TodoDetails
 }
 
 internal sealed record TodoItem(int Offset, string Line, int Mark, int Body, int ContentEnd,
-    string Title, DateTime? Due, bool Done, TodoDetails Details);
-internal sealed record TodoDraft(string Title, DateTime? Due, TodoDetails Details);
+    string Title, TodoDeadline? Due, bool Done, TodoDetails Details);
+internal sealed record TodoDraft(string Title, TodoDeadline? Due, TodoDetails Details);
 internal sealed record TodoCatalog
 {
     public TodoList[] Lists { get; init; } = [];
@@ -83,14 +112,14 @@ internal static class TodoViews
     };
 
     public static bool IsToday(TodoItem item, DateTime now) =>
-        item.Details.MyDay == DateOnly.FromDateTime(now) || item.Due?.Date == now.Date;
+        item.Details.MyDay == DateOnly.FromDateTime(now) || item.Due?.Date == DateOnly.FromDateTime(now);
 
     public static bool Includes(TodoItem item, string view, DateTime now) => view switch
     {
         Today => IsToday(item, now),
         Important => item.Details.Important,
         Planned => item.Due is not null || item.Details.Reminder is not null,
-        Overdue => !item.Done && item.Due is { } due && due < now,
+        Overdue => !item.Done && item.Due is { } due && due.IsOverdue(now),
         Completed => item.Done,
         Inbox => item.Details.ListId is null,
         Trash => false,
@@ -112,16 +141,15 @@ internal static class TodoViews
     {
         TaskSort.Title => items.OrderBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase),
         TaskSort.Newest => items.OrderByDescending(item => item.Details.Created).ThenByDescending(item => item.Offset),
-        TaskSort.Important => items.OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due ?? DateTime.MaxValue),
-        TaskSort.Today => items.OrderByDescending(item => IsToday(item, DateTime.Now)).ThenBy(item => item.Due ?? DateTime.MaxValue),
+        TaskSort.Important => items.OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
+        TaskSort.Today => items.OrderByDescending(item => IsToday(item, DateTime.Now)).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
         TaskSort.Manual => items,
-        _ => items.OrderBy(item => item.Due ?? item.Details.Reminder ?? DateTime.MaxValue)
+        _ => items.OrderBy(item => item.Due?.SortAt ?? item.Details.Reminder ?? DateTime.MaxValue)
     };
 }
 
 internal sealed partial class TaskFile(string path)
 {
-    private const string DeadlineFormat = "yyyy-MM-dd HH:mm";
     private const string DeadlineSeparator = " 📅 ";
     private const string ItemPrefix = " <!-- hanlin-task:";
     private const string CatalogPrefix = "<!-- hanlin-workspace:";
@@ -160,7 +188,7 @@ internal sealed partial class TaskFile(string path)
             ReminderSent = item.Details.Reminder == draft.Details.Reminder && item.Details.ReminderSent,
             NextId = item.Details.NextId,
             RepeatDay = draft.Due is null || draft.Details.Repeat == TaskRepeat.None ? null
-                : draft.Details.Repeat == item.Details.Repeat && draft.Due == item.Due ? item.Details.RepeatDay : draft.Due.Value.Day
+                : draft.Details.Repeat == item.Details.Repeat && draft.Due == item.Due ? item.Details.RepeatDay : draft.Due.Value.Date.Day
         };
         return Write(snapshot.Text, ReplaceItem(snapshot.Text, item,
             item.Line[..item.Body] + FormatTitle(draft.Title, draft.Due) + SerializeDetails(details)));
@@ -186,18 +214,20 @@ internal sealed partial class TaskFile(string path)
         if (done && item.Due is { } due && details.Repeat != TaskRepeat.None
             && !snapshot.Items.Any(next => next.Details.Id is not null && next.Details.Id == details.NextId))
         {
-            if (NextDue(due, details.Repeat, details.RepeatDay ?? due.Day, DateTime.Now, details.RepeatInterval) is { } nextDue)
+            var now = DateTime.Now;
+            var cutoff = due.Time is null ? now.Date.AddTicks(-1) : now;
+            if (NextDue(due.At, details.Repeat, details.RepeatDay ?? due.Date.Day, cutoff, details.RepeatInterval) is { } nextDue)
             {
                 string nextId = NewId();
                 details = details with { Id = details.Id ?? NewId(), NextId = nextId };
                 var next = details with
                 {
                     Id = nextId, NextId = null, MyDay = null, Created = DateTime.Now,
-                    Reminder = ShiftReminder(details.Reminder, nextDue - due),
-                    ReminderSent = false, RepeatDay = details.RepeatDay ?? due.Day,
+                    Reminder = ShiftReminder(details.Reminder, nextDue - due.At),
+                    ReminderSent = false, RepeatDay = details.RepeatDay ?? due.Date.Day,
                     Steps = details.Steps?.Select(step => step with { Done = false }).ToArray()
                 };
-                nextLine = NewLine(item.Title, nextDue, next);
+                nextLine = NewLine(item.Title, due with { Date = DateOnly.FromDateTime(nextDue) }, next);
             }
         }
         string body = item.Line[..item.ContentEnd];
@@ -364,7 +394,7 @@ internal sealed partial class TaskFile(string path)
         using var stream = new FileStream(Path, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
     }
 
-    private static TodoDetails Normalize(TodoDetails input, DateTime? due, TodoCatalog catalog)
+    private static TodoDetails Normalize(TodoDetails input, TodoDeadline? due, TodoCatalog catalog)
     {
         var repeat = due is not null && Enum.IsDefined(input.Repeat) ? input.Repeat : TaskRepeat.None;
         return input with
@@ -426,10 +456,9 @@ internal sealed partial class TaskFile(string path)
             content = content[..suffix];
         }
         string title = content.Trim();
-        DateTime? due = null;
+        TodoDeadline? due = null;
         int delimiter = title.LastIndexOf(DeadlineSeparator, StringComparison.Ordinal);
-        if (delimiter > 0 && DateTime.TryParseExact(title[(delimiter + DeadlineSeparator.Length)..],
-            DeadlineFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var deadline))
+        if (delimiter > 0 && TodoDeadline.TryParse(title[(delimiter + DeadlineSeparator.Length)..], out var deadline))
         {
             due = deadline;
             title = title[..delimiter].TrimEnd();
@@ -476,11 +505,11 @@ internal sealed partial class TaskFile(string path)
         return text + (text.Length == 0 || text.EndsWith('\n') ? "" : newline) + line + newline;
     }
 
-    private static string NewLine(string title, DateTime? due, TodoDetails details) =>
+    private static string NewLine(string title, TodoDeadline? due, TodoDetails details) =>
         "- [ ] " + FormatTitle(title, due) + SerializeDetails(details);
 
-    private static string FormatTitle(string title, DateTime? due) =>
-        due is { } date ? title + DeadlineSeparator + date.ToString(DeadlineFormat, CultureInfo.InvariantCulture) : title;
+    private static string FormatTitle(string title, TodoDeadline? due) =>
+        due is { } date ? title + DeadlineSeparator + date.ToFileText() : title;
 
     private static string SerializeDetails(TodoDetails details) => ItemPrefix + JsonSerializer.Serialize(details, Json) + CommentEnd;
     private static string NewId() => Guid.NewGuid().ToString("N");

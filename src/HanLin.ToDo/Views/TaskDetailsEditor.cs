@@ -164,7 +164,7 @@ internal sealed class TaskDetailsEditor : StackPanel
         Children.Add(notice);
     }
 
-    public bool TryRead(DateTime? due, out TodoDetails details, out string? error)
+    public bool TryRead(TodoDeadline? due, out TodoDetails details, out string? error)
     {
         details = original;
         error = null;
