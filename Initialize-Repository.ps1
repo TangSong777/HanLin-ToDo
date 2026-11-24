@@ -82,8 +82,8 @@ try {
         }
     }
     if ($remote.ExitCode -ne 0) {
-        Invoke-Checked gh @('repo', 'create', $repository, '--private')
-    } elseif ($remote.Visibility -ne 'PRIVATE') {
+        Invoke-Checked gh @('repo', 'create', $repository, '--public')
+    } elseif ($remote.Visibility -ne 'PUBLIC') {
         throw 'Check repository visibility before uploading the project.'
     }
 
