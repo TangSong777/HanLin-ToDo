@@ -13,7 +13,7 @@ using System.Windows.Threading;
 
 namespace HanLin.ToDo;
 
-internal sealed class NoteView : Border
+internal sealed partial class NoteView : Border
 {
     public const int ShadowMargin = 9;
     private readonly Border card;
@@ -40,7 +40,7 @@ internal sealed class NoteView : Border
     public event Action? LockRequested;
     public event Action? CompletedRequested;
     public event Action<TodoItem, bool>? DoneChanged;
-    public Func<TodoItem, string, DateTime?, string?>? SaveEdit { get; set; }
+    public Func<TodoItem, TodoDraft, string?>? SaveEdit { get; set; }
     public bool IsLocked => settings.Locked;
 
     public NoteView()
@@ -58,6 +58,7 @@ internal sealed class NoteView : Border
         card.SetResourceReference(BorderBrushProperty, "EdgeBrush");
         Child = card;
         layout = new Grid();
+        layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -97,6 +98,10 @@ internal sealed class NoteView : Border
         layout.Children.Add(titleBand);
         Title = title;
 
+        var taskInput = CreateTaskInput();
+        Grid.SetRow(taskInput, 1);
+        layout.Children.Add(taskInput);
+
         var lists = new StackPanel { Margin = new Thickness(11, 2, 11, 6) };
         pending.AutomationName("未完成任务");
         lists.Children.Add(pending);
@@ -117,7 +122,7 @@ internal sealed class NoteView : Border
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        Grid.SetRow(scroll, 1);
+        Grid.SetRow(scroll, 2);
         layout.Children.Add(scroll);
 
         notice.Margin = new Thickness(0, 3, 6, 4);
@@ -130,13 +135,16 @@ internal sealed class NoteView : Border
         sizeGrip.ToolTip = "拖动调整便签大小";
         DockPanel.SetDock(sizeGrip, Dock.Right);
         footer.Children.Add(sizeGrip);
+        var navigation = CreateTaskNavigation();
+        DockPanel.SetDock(navigation, Dock.Left);
+        footer.Children.Add(navigation);
         var status = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         status.Children.Add(taskCount);
         status.Children.Add(notice);
         footer.Children.Add(status);
         var footerBand = new Border { Child = footer, BorderThickness = new Thickness(0, 1, 0, 0) };
         footerBand.SetResourceReference(BorderBrushProperty, "LineBrush");
-        Grid.SetRow(footerBand, 2);
+        Grid.SetRow(footerBand, 3);
         layout.Children.Add(footerBand);
         QueryCursor += (_, args) =>
         {
@@ -190,7 +198,8 @@ internal sealed class NoteView : Border
             lockButton.SetResourceReference(Control.BackgroundProperty, "TintBrush");
         else
             lockButton.Background = Brushes.Transparent;
-        if (!initialized || previous.ShowCompleted != settings.ShowCompleted
+        if (!initialized || previous.ShowCompleted != settings.ShowCompleted || previous.TaskView != settings.TaskView
+            || previous.Sort != settings.Sort
             || previous.Theme.Size != theme.Size || previous.Theme.Padding != theme.Padding)
             Render();
         initialized = true;
@@ -241,6 +250,14 @@ internal sealed class NoteView : Border
 
     public void UpdateTasks(TodoSnapshot next)
     {
+        if (selected.Count > 0)
+        {
+            static (string? Id, int Offset, string Line) Key(TodoItem item) =>
+                item.Details.Id is { } id ? (id, 0, "") : (null, item.Offset, item.Line);
+            var selection = selected.Select(Key).ToHashSet();
+            selected.Clear();
+            selected.UnionWith(next.Items.Where(item => selection.Contains(Key(item))));
+        }
         snapshot = next;
         Render();
     }
@@ -264,34 +281,49 @@ internal sealed class NoteView : Border
         lastRender = DateTime.Now;
         pending.Children.Clear();
         completed.Children.Clear();
+        RefreshTaskNavigation();
 
         TodoItem? ownRow = null;
         if (editTarget is { } target)
         {
             var matches = snapshot.Items.Where(item => item.Line == target.Line).ToArray();
-            ownRow = matches.FirstOrDefault(item => item.Offset == target.Offset) ??
+            ownRow = snapshot.Items.FirstOrDefault(item => target.Details.Id is not null && item.Details.Id == target.Details.Id)
+                ?? matches.FirstOrDefault(item => item.Offset == target.Offset) ??
                 (matches.Length == 1 ? matches[0] : null);
-            if (ownRow is null && editor is not null)
-                pending.Children.Add(editor);
         }
 
-        var remaining = snapshot.Items.Where(item => !item.Done).OrderBy(item => item.Due ?? DateTime.MaxValue).ToArray();
-        var finished = snapshot.Items.Where(item => item.Done).ToArray();
-        taskCount.Text = remaining.Length == 0 ? "全部完成" : $"{remaining.Length} 项待办";
-        taskCount.Visibility = snapshot.Items.Count == 0 ? Visibility.Hidden : Visibility.Visible;
-        if (remaining.Length == 0 && (editor is null || ownRow is not null))
+        string query = SearchQuery;
+        string view = ActiveView;
+        if (view == TodoViews.Trash && query.Length == 0)
         {
-            var empty = Ui.Text("暂无待办", 14, "MutedBrush");
+            if (editor is not null) pending.Children.Add(editor);
+            RenderTrash();
+            return;
+        }
+        var visible = VisibleTasks();
+        var remaining = visible.Where(item => !item.Done).ToArray();
+        var finished = visible.Where(item => item.Done).ToArray();
+        bool showFinished = settings.ShowCompleted || (query.Length > 0) || view == TodoViews.Completed;
+        if (editor is not null && !remaining.Contains(ownRow) && !(showFinished && finished.Contains(ownRow)))
+            pending.Children.Add(editor);
+
+        int matchingMemos = query.Length == 0 ? 0 : RenderMatchingMemos(query);
+        taskCount.Text = query.Length > 0 || view == TodoViews.Completed ? $"{visible.Length + matchingMemos} 项" : $"{remaining.Length} 项";
+        taskCount.Visibility = Visibility.Visible;
+        if (remaining.Length == 0 && finished.Length == 0 && matchingMemos == 0 && editor is null)
+        {
+            var empty = Ui.Text(query.Length == 0 ? "这里还没有任务" : "没有找到匹配的任务", 14, "MutedBrush");
             empty.Margin = new Thickness(6, 12, 6, 10);
             pending.Children.Add(empty);
         }
         foreach (var item in remaining)
             pending.Children.Add(item == ownRow && editor is not null ? editor : MakeRow(item));
 
-        completedButton.Visibility = finished.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        completedButton.Visibility = finished.Length == 0 || query.Length > 0 || view == TodoViews.Completed
+            ? Visibility.Collapsed : Visibility.Visible;
         completedButton.Content = (settings.ShowCompleted ? "⌄" : "›") + "  已完成 " + finished.Length;
         AutomationProperties.SetName(completedButton, (settings.ShowCompleted ? "折叠" : "展开") + "已完成 " + finished.Length);
-        if (settings.ShowCompleted)
+        if (showFinished)
         {
             foreach (var item in finished)
                 completed.Children.Add(item == ownRow && editor is not null ? editor : MakeRow(item));
@@ -303,12 +335,14 @@ internal sealed class NoteView : Border
         var grid = new Grid { Margin = new Thickness(0, settings.Theme.Padding, 0, settings.Theme.Padding) };
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(27) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
 
-        var check = new CheckBox { Style = (Style)Application.Current.FindResource("SoftCheck"), IsChecked = item.Done };
-        AutomationProperties.SetName(check, (item.Done ? "取消完成 " : "完成 ") + item.Title);
-        check.Checked += (_, _) => DoneChanged?.Invoke(item, true);
-        check.Unchecked += (_, _) => DoneChanged?.Invoke(item, false);
+        var check = new CheckBox { Style = (Style)Application.Current.FindResource("SoftCheck"),
+            IsChecked = selecting ? selected.Contains(item) : item.Done };
+        AutomationProperties.SetName(check, (selecting ? "选择 " : item.Done ? "取消完成 " : "完成 ") + item.Title);
+        check.Checked += (_, _) => SetRowSelectionOrDone(item, true);
+        check.Unchecked += (_, _) => SetRowSelectionOrDone(item, false);
         grid.Children.Add(check);
 
         var text = new StackPanel { Margin = new Thickness(4, 0, 3, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -344,22 +378,43 @@ internal sealed class NoteView : Border
                 text.Children.Add(time);
         }
 
+        var metadata = TaskSummary(item);
+        if (metadata.Length > 0)
+        {
+            var extra = Ui.Text(metadata, Math.Max(11, settings.Theme.Size - 4), "MutedBrush");
+            extra.TextWrapping = TextWrapping.Wrap;
+            text.Children.Add(extra);
+        }
+
+        var star = Ui.Button((item.Details.Important ? "取消重要 " : "标为重要 ") + item.Title,
+            () => ToggleImportance(item), "star");
+        star.Width = 27;
+        star.VerticalAlignment = VerticalAlignment.Center;
+        if (item.Details.Important && star.Content is System.Windows.Shapes.Path glyph)
+            glyph.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
+        Grid.SetColumn(star, 2);
+        grid.Children.Add(star);
         var edit = Ui.Button("编辑 " + item.Title, () => BeginEdit(item), "pencil");
         edit.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(edit, 2);
+        Grid.SetColumn(edit, 3);
         grid.Children.Add(edit);
 
         var row = new Border { Child = grid, BorderThickness = new Thickness(0, 0, 0, 1) };
         row.SetResourceReference(BorderBrushProperty, "LineBrush");
+        if (!selecting)
+        {
+            row.ContextMenu = new ContextMenu();
+            row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
+        }
         return row;
     }
 
     private void BeginEdit(TodoItem item)
     {
         editTarget = item;
-        editor = new TaskEditor(item.Title, item.Due, (title, due) =>
+        editor = new TaskEditor(new(item.Title, item.Due, item.Details), snapshot.Catalog, draft =>
         {
-            string? error = SaveEdit?.Invoke(item, title, due);
+            string? error = SaveEdit?.Invoke(item, draft);
             if (error is null)
                 CloseEditor();
             return error;
@@ -374,7 +429,7 @@ internal sealed class NoteView : Border
         editor = null;
         editTarget = null;
         Render();
-        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => lockButton.Focus()));
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => quickInput.Focus()));
     }
 }
 

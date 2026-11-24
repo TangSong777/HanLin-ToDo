@@ -19,14 +19,17 @@ internal sealed class TaskEditor : Border
     private readonly DatePicker date;
     private readonly ComboBox time;
     private readonly TextBlock error;
-    private readonly Func<string, DateTime?, string?> save;
+    private readonly TaskDetailsEditor detailsEditor;
+    private readonly Func<TodoDraft, string?> save;
     private readonly Action cancel;
     private bool invalidDate;
 
-    public TaskEditor(string name, DateTime? due, Func<string, DateTime?, string?> save, Action cancel)
+    public TaskEditor(TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save, Action cancel)
     {
         this.save = save;
         this.cancel = cancel;
+        string name = draft.Title;
+        DateTime? due = draft.Due;
         CornerRadius = new CornerRadius(8);
         Padding = new Thickness(9);
         Margin = new Thickness(0, 3, 0, 4);
@@ -46,6 +49,7 @@ internal sealed class TaskEditor : Border
             Style = (Style)Application.Current.FindResource("SoftDatePicker"),
             Language = XmlLanguage.GetLanguage("zh-CN"),
             FirstDayOfWeek = DayOfWeek.Monday,
+            Tag = "打开日历",
             SelectedDateFormat = DatePickerFormat.Short,
             DisplayDate = due?.Date ?? DateTime.Today,
             SelectedDate = due?.Date
@@ -86,6 +90,15 @@ internal sealed class TaskEditor : Border
         Grid.SetColumn(time, 1);
         schedule.Children.Add(time);
         fields.Children.Add(schedule);
+
+        detailsEditor = new TaskDetailsEditor(draft.Details, catalog);
+        var details = new Expander
+        {
+            Header = "任务详情",
+            Content = detailsEditor,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        fields.Children.Add(details);
 
         error = Ui.Text("", 12, "OverdueBrush");
         error.TextWrapping = TextWrapping.Wrap;
@@ -130,7 +143,7 @@ internal sealed class TaskEditor : Border
 
     private void OnKey(object sender, KeyEventArgs args)
     {
-        if (date.IsDropDownOpen || time.IsDropDownOpen)
+        if (date.IsDropDownOpen || time.IsDropDownOpen || detailsEditor.IsPickerOpen)
             return;
         if (args.Key == Key.Escape)
         {
@@ -181,7 +194,13 @@ internal sealed class TaskEditor : Border
             due = day.Date.Add(clock.ToTimeSpan());
         }
 
-        string? message = save(name, due);
+        if (!detailsEditor.TryRead(due, out var details, out string? detailError))
+        {
+            ShowError(detailError!);
+            error.BringIntoView();
+            return;
+        }
+        string? message = save(new TodoDraft(name, due, details));
         if (message is not null)
             ShowError(message);
     }
@@ -207,28 +226,29 @@ internal sealed class CaptureWindow : Window
 {
     private readonly TaskEditor editor;
 
-    public CaptureWindow(NoteTheme theme, Func<string, DateTime?, string?> save)
+    public CaptureWindow(NoteTheme theme, TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save)
     {
         Title = "HanLin-ToDo · 新建待办";
         FontFamily = new System.Windows.Media.FontFamily(theme.Font);
         Icon = Ui.AppIcon();
         Width = 350;
         SizeToContent = SizeToContent.Height;
+        MaxHeight = SystemParameters.WorkArea.Height - 32;
         ResizeMode = ResizeMode.NoResize;
         WindowStyle = WindowStyle.ToolWindow;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = false;
         Topmost = true;
         SetResourceReference(BackgroundProperty, "SurfaceBrush");
-        editor = new TaskEditor("", null, (title, due) =>
+        editor = new TaskEditor(draft, catalog, task =>
         {
-            string? error = save(title, due);
+            string? error = save(task);
             if (error is null)
                 Close();
             return error;
         }, Close);
         editor.Margin = new Thickness(10);
-        Content = editor;
+        Content = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         ContentRendered += (_, _) => editor.FocusTitle();
     }
 

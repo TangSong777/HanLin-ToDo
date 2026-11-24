@@ -86,6 +86,10 @@ internal static class Ui
             "pencil" => "M 2,9.4 L 9.7,1.7 L 12.3,4.3 L 4.5,12 L 1.4,12.6 Z M 8.1,3.3 L 10.7,5.9",
             "grip" => "M 5,3 h 0.25 M 9,3 h 0.25 M 5,7 h 0.25 M 9,7 h 0.25 M 5,11 h 0.25 M 9,11 h 0.25",
             "resize" => "M 5,11 L 11,5 M 9,11 L 11,9",
+            "close" => "M 4,4 L 10,10 M 10,4 L 4,10",
+            "search" => "M 9,6 A 3.5,3.5 0 1 1 2,6 A 3.5,3.5 0 1 1 9,6 M 8,9 L 12,13",
+            "star" => "M 7,1.3 L 8.7,4.8 L 12.6,5.4 L 9.8,8.2 L 10.5,12.1 L 7,10.2 L 3.5,12.1 L 4.2,8.2 L 1.4,5.4 L 5.3,4.8 Z",
+            "chevron" => "M 3,5 L 7,9 L 11,5",
             _ => throw new ArgumentOutOfRangeException(nameof(icon))
         };
         var path = new System.Windows.Shapes.Path

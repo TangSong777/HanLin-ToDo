@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -32,6 +34,7 @@ public partial class App : Application
     private DispatcherTimer? timer;
     private CaptureWindow? capture;
     private SettingsWindow? settingsWindow;
+    private ListsWindow? listsWindow;
     private Forms.NotifyIcon? tray;
     private Forms.ContextMenuStrip? trayMenu;
     private Drawing.Icon? trayIcon;
@@ -77,7 +80,19 @@ public partial class App : Application
             note.LockRequested += ToggleLock;
             note.CompletedRequested += () => ChangePreferences(preferences with { ShowCompleted = !preferences.ShowCompleted });
             note.DoneChanged += (item, done) => Mutate(() => tasks.SetDone(item, done));
-            note.SaveEdit = (item, title, due) => Mutate(() => tasks.Edit(item, title, due));
+            note.SaveEdit = (item, draft) => Mutate(() => tasks.Edit(item, draft));
+            note.AddTask = draft => Mutate(() => tasks.Add(draft));
+            note.ViewRequested += view => ChangePreferences(preferences with { TaskView = view });
+            note.SortRequested += sort => ChangePreferences(preferences with { Sort = sort });
+            note.ListsRequested += ShowLists;
+            note.DetailsRequested += (item, update) => Mutate(() => tasks.UpdateDetails(item, update));
+            note.DuplicateRequested += item => Mutate(() => tasks.Duplicate(item));
+            note.ReorderRequested += (item, offset) => Mutate(() => tasks.MoveOrder(item, offset));
+            note.DeleteRequested += item => DeleteTasks([item]);
+            note.RestoreRequested += RestoreTask;
+            note.BatchMoveRequested += MoveTasks;
+            note.BatchDeleteRequested += DeleteTasks;
+            note.ExportRequested += ExportTasks;
             desktop = new DesktopSurface(note, preferences, next => ChangePreferences(next));
             ReloadTasks();
             CreateTray();
@@ -86,6 +101,7 @@ public partial class App : Application
             timer = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) =>
             {
                 ReloadTasks();
+                DeliverReminders();
                 note.RefreshTime();
                 RefreshDesktop();
             }, Dispatcher);
@@ -130,6 +146,7 @@ public partial class App : Application
         trayIcon = new Drawing.Icon(stream, size.Width, size.Height);
         trayMenu = new Forms.ContextMenuStrip();
         trayMenu.Items.Add("新建待办     Ctrl+Alt+T", null, (_, _) => ShowCapture());
+        trayMenu.Items.Add("管理清单和便笺", null, (_, _) => ShowLists(note.ActiveView));
         visibleMenu = (Forms.ToolStripMenuItem)trayMenu.Items.Add("隐藏便签", null, (_, _) => SetNoteVisible(!noteVisible));
         trayMenu.Items.Add("便签设置", null, (_, _) => ShowSettings());
         trayMenu.Items.Add("打开任务文件", null, (_, _) => OpenTaskFile());
@@ -140,6 +157,11 @@ public partial class App : Application
         {
             if (args.Button == Forms.MouseButtons.Left)
                 ShowCapture();
+        };
+        tray.BalloonTipClicked += (_, _) =>
+        {
+            SetNoteVisible(true);
+            ChangePreferences(preferences with { TaskView = TodoViews.Planned });
         };
     }
 
@@ -153,11 +175,133 @@ public partial class App : Application
     {
         if (capture is null)
         {
-            capture = new CaptureWindow(preferences.Theme, (title, due) => Mutate(() => tasks.Add(title, due)));
+            var draft = new TodoDraft("", null, TodoViews.NewDetails(note.ActiveView, DateTime.Now));
+            capture = new CaptureWindow(preferences.Theme, draft, current.Catalog, task => Mutate(() => tasks.Add(task)));
             capture.Closed += (_, _) => capture = null;
             capture.Show();
         }
         capture.FocusEditor();
+    }
+
+    private void ShowLists(string view)
+    {
+        if (listsWindow is null)
+        {
+            listsWindow = new ListsWindow(preferences.Theme, current.Catalog, view, SaveList, RemoveList);
+            listsWindow.Closed += (_, _) => listsWindow = null;
+            listsWindow.Show();
+        }
+        listsWindow.Activate();
+    }
+
+    private string? SaveList(string? id, string name, string? group, string? memo)
+    {
+        string? error = Mutate(() => id == "" ? tasks.SaveListMemo(null, memo) : tasks.SaveList(id, name, group, memo));
+        if (error is null && id is null)
+        {
+            var added = current.Catalog.Lists.LastOrDefault();
+            if (added is not null) ChangePreferences(preferences with { TaskView = added.Id });
+        }
+        return error;
+    }
+
+    private string? RemoveList(string id)
+    {
+        string? error = Mutate(() => tasks.RemoveList(id));
+        if (error is null && preferences.TaskView == id)
+            ChangePreferences(preferences with { TaskView = TodoViews.Inbox });
+        return error;
+    }
+
+    private void MoveTasks(IReadOnlyList<TodoItem> items, string? destination)
+    {
+        if (Mutate(() => tasks.MoveToList(items, destination)) is null)
+        {
+            note.EndSelection();
+            note.ShowNotice($"已移动 {items.Count} 项任务。");
+        }
+    }
+
+    private void DeleteTasks(IReadOnlyList<TodoItem> items)
+    {
+        string id = Guid.NewGuid().ToString("N");
+        if (items.Count > 0 && Mutate(() => tasks.Delete(items, id)) is null)
+        {
+            note.EndSelection();
+            note.ShowUndo(id);
+        }
+    }
+
+    private void RestoreTask(string id)
+    {
+        if (Mutate(() => tasks.Restore(id)) is null)
+        {
+            note.ShowUndo(null);
+            note.ShowNotice("任务已恢复。");
+        }
+    }
+
+    private void ExportTasks(string heading, IReadOnlyList<TodoItem> items)
+    {
+        var dialog = new SaveFileDialog { DefaultExt = ".md", Filter = "Markdown 文件|*.md", FileName = "HanLin-ToDo.md" };
+        try
+        {
+            if (dialog.ShowDialog() != true)
+                return;
+            if (string.Equals(Path.GetFullPath(dialog.FileName), tasks.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                note.ShowNotice("请选择另一个文件名，保留应用正在使用的任务文件。");
+                return;
+            }
+            var markdown = new StringBuilder().Append("# ").AppendLine(heading).AppendLine();
+            foreach (var item in items)
+            {
+                markdown.Append(item.Done ? "- [x] " : "- [ ] ").Append(item.Title);
+                if (item.Due is { } due)
+                    markdown.Append(" 📅 ").Append(due.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+                if (item.Details.Important)
+                    markdown.Append(" ⭐");
+                if (item.Details.Tags is { Length: > 0 } tags)
+                    markdown.Append(" #").AppendJoin(" #", tags);
+                markdown.AppendLine();
+                foreach (var step in item.Details.Steps ?? [])
+                    markdown.Append(step.Done ? "  - [x] " : "  - [ ] ").AppendLine(step.Title);
+                if (item.Details.Memo is { } memo)
+                    foreach (string line in memo.ReplaceLineEndings("\n").Split('\n'))
+                        markdown.Append("  > ").AppendLine(line);
+                foreach (string attachment in item.Details.Attachments ?? [])
+                    markdown.Append("  - ").AppendLine(attachment);
+            }
+            AtomicFile.Write(dialog.FileName, markdown.ToString());
+            note.ShowNotice($"已导出 {items.Count} 项任务。");
+        }
+        catch (Exception ex) when (IsExpected(ex))
+        {
+            note.ShowNotice("无法导出任务，请检查保存位置。");
+        }
+    }
+
+    private void DeliverReminders()
+    {
+        var now = DateTime.Now;
+        if (tray is null || !current.Items.Any(item => TaskFile.IsReminderDue(item, now)))
+            return;
+        try
+        {
+            var (next, titles) = tasks.ClaimReminders(now);
+            if (titles.Count == 0)
+                return;
+            current = next;
+            note.UpdateTasks(current);
+            var names = string.Join("\r\n", titles.Take(3));
+            if (names.Length > 190) names = names[..190] + "…";
+            if (titles.Count > 3) names += $"\r\n另有 {titles.Count - 3} 条提醒";
+            tray.ShowBalloonTip(7000, "HanLin-ToDo 提醒", names, Forms.ToolTipIcon.Info);
+        }
+        catch (Exception ex) when (IsExpected(ex))
+        {
+            note.ShowNotice("提醒暂时无法保存，下次会重试。");
+        }
     }
 
     private void ShowSettings()
@@ -249,8 +393,8 @@ public partial class App : Application
     {
         try
         {
-            var next = tasks.Read();
-            if (next.Text == current.Text)
+            var next = tasks.Read(current);
+            if (ReferenceEquals(next, current))
                 return;
             current = next;
             note.UpdateTasks(current);

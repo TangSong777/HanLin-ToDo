@@ -190,9 +190,9 @@
               <DatePickerTextBox x:Name="PART_TextBox" Padding="6,4"
                                  Background="Transparent" BorderThickness="0"
                                  VerticalContentAlignment="Center" Foreground="{TemplateBinding Foreground}"
-                                 AutomationProperties.Name="截止日期"/>
+                                 AutomationProperties.Name="{Binding Path=(AutomationProperties.Name), RelativeSource={RelativeSource TemplatedParent}}"/>
               <Button x:Name="PART_Button" Grid.Column="1" Style="{StaticResource SoftButton}" Padding="0"
-                      ToolTip="打开日历" AutomationProperties.Name="打开日历">
+                      ToolTip="{TemplateBinding Tag}" AutomationProperties.Name="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}">
                 <Path Data="M 2,4 H 12 V 12 H 2 Z M 2,6.5 H 12 M 4.5,2.5 V 5 M 9.5,2.5 V 5"
                       Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="14" Height="14"/>
