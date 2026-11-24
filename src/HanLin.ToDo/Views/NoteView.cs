@@ -148,20 +148,16 @@ internal sealed partial class NoteView : Border
         layout.Children.Add(footerBand);
         QueryCursor += (_, args) =>
         {
-            if (!IsCardSurface(args.OriginalSource))
+            if (!TryGetWindowDrag(args.OriginalSource, Mouse.GetPosition(this), out var edges))
                 return;
-            var edges = ResizeEdgesAt(Mouse.GetPosition(this));
-            var cursor = edges switch
+            args.Cursor = edges switch
             {
                 ResizeEdge.Left or ResizeEdge.Right => Cursors.SizeWE,
                 ResizeEdge.Top or ResizeEdge.Bottom => Cursors.SizeNS,
                 ResizeEdge.TopLeft or ResizeEdge.BottomRight => Cursors.SizeNWSE,
                 ResizeEdge.TopRight or ResizeEdge.BottomLeft => Cursors.SizeNESW,
-                _ => IsLocked ? null : Cursors.SizeAll
+                _ => Cursors.SizeAll
             };
-            if (cursor is null)
-                return;
-            args.Cursor = cursor;
             args.Handled = true;
         };
     }
@@ -211,7 +207,7 @@ internal sealed partial class NoteView : Border
         initialized = true;
     }
 
-    public ResizeEdge ResizeEdgesAt(Point point)
+    private ResizeEdge ResizeEdgesAt(Point point)
     {
         double left = ShadowMargin, top = ShadowMargin;
         double right = ActualWidth - ShadowMargin, bottom = ActualHeight - ShadowMargin;
@@ -235,15 +231,22 @@ internal sealed partial class NoteView : Border
         return edges;
     }
 
-    public bool IsCardSurface(object? origin)
+    public bool TryGetWindowDrag(object? origin, Point point, out ResizeEdge edges)
     {
+        edges = ResizeEdge.None;
+        bool inTitleBar = false;
         var element = origin as DependencyObject;
         while (element is not null)
         {
             if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or ComboBox or DatePicker or TaskEditor)
                 return false;
+            if (element == titleBand)
+                inTitleBar = true;
             if (element == card)
-                return true;
+            {
+                edges = ResizeEdgesAt(point);
+                return edges != ResizeEdge.None || (inTitleBar && !IsLocked);
+            }
             element = element switch
             {
                 Visual visual => VisualTreeHelper.GetParent(visual),

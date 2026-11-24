@@ -189,13 +189,12 @@ internal sealed class DesktopSurface : IDisposable
     private void BeginDrag(object sender, MouseButtonEventArgs args)
     {
         var hit = args.GetPosition(view);
-        if (dragging || !view.IsCardSurface(view.InputHitTest(hit)) || source is null || source.IsDisposed
+        if (dragging || source is null || source.IsDisposed
+            || !view.TryGetWindowDrag(view.InputHitTest(hit), hit, out var edges)
             || !Native.GetCursorPos(out var cursor) || !Native.GetWindowRect(source.Handle, out var window))
             return;
 
-        resizeEdges = view.ResizeEdgesAt(hit);
-        if (resizeEdges == ResizeEdge.None && view.IsLocked)
-            return;
+        resizeEdges = edges;
         originalBounds = window;
         dragStart = new Point(cursor.X, cursor.Y);
         movedPastThreshold = false;
