@@ -27,7 +27,6 @@ internal sealed class TaskEditor : Border
     private readonly Action cancel;
     private Calendar? keyboardCalendar;
     private DateTime? dateBeforeKeyboardSelection;
-    private bool saveAfterCalendarCloses;
     private bool invalidDate;
 
     public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
@@ -122,11 +121,6 @@ internal sealed class TaskEditor : Border
                 keyboardCalendar = null;
             }
             RefreshDateInput();
-            if (saveAfterCalendarCloses)
-            {
-                saveAfterCalendarCloses = false;
-                Commit();
-            }
         };
         date.DateValidationError += (_, args) =>
         {
@@ -154,7 +148,7 @@ internal sealed class TaskEditor : Border
             details.Style = (Style)Application.Current.FindResource("SoftDetailsExpander");
             cancelButton.Margin = new Thickness(0, 0, 6, 0);
             Child = CreateCaptureForm(fields, buttons);
-            title.ToolTip = "Tab 打开日历，方向键选日期，Enter 保存。";
+            title.ToolTip = "Tab 打开日历，方向键选日期，Enter 确认日期，再按 Enter 保存。";
             title.PreviewKeyDown += OpenKeyboardCalendar;
         }
         else
@@ -233,15 +227,13 @@ internal sealed class TaskEditor : Border
 
         if (args.Key == Key.Escape)
             date.SelectedDate = dateBeforeKeyboardSelection;
-        else if (args.Key == Key.Enter && keyboardCalendar?.DisplayMode == CalendarMode.Month)
-            saveAfterCalendarCloses = true;
-        else
+        else if (args.Key != Key.Enter || keyboardCalendar?.DisplayMode != CalendarMode.Month)
             return;
 
         args.Handled = true;
         date.IsDropDownOpen = false;
-        if (args.Key == Key.Escape)
-            title.Focus();
+        // 第一次 Enter 只确认日期，焦点回到输入框；再按一次 Enter 才保存。
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => title.Focus()));
     }
 
     private void OnKey(object sender, KeyEventArgs args)
@@ -351,7 +343,7 @@ internal sealed class CaptureWindow : Window
             return error;
         }, Close, isCaptureWindow: true);
         Content = CreateFrame(theme);
-        ContentRendered += (_, _) => editor.FocusTitle();
+        ContentRendered += (_, _) => FocusEditor();
         SizeChanged += (_, args) =>
         {
             if (args.HeightChanged)

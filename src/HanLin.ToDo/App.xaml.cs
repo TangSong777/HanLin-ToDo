@@ -238,6 +238,7 @@ public partial class App : Application
             capture = new CaptureWindow(preferences.Theme, AddTask);
             capture.Closed += (_, _) => capture = null;
             capture.Show();
+            capture.FocusEditor();
             return;
         }
         capture.FocusEditor();
