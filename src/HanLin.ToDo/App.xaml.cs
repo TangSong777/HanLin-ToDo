@@ -78,8 +78,7 @@ public partial class App : Application
             note.CompletedRequested += () => ChangePreferences(preferences with { ShowCompleted = !preferences.ShowCompleted });
             note.DoneChanged += (item, done) => Mutate(() => tasks.SetDone(item, done));
             note.SaveEdit = (item, title, due) => Mutate(() => tasks.Edit(item, title, due));
-            desktop = new DesktopSurface(note, preferences, point =>
-                ChangePreferences(preferences with { Left = point.X, Top = point.Y }));
+            desktop = new DesktopSurface(note, preferences, next => ChangePreferences(next));
             ReloadTasks();
             CreateTray();
             RegisterHotkey();
@@ -210,10 +209,12 @@ public partial class App : Application
         try
         {
             storage.Save(next);
-            if (next.Theme != preferences.Theme)
+            if (next.Theme.Accent != preferences.Theme.Accent || next.Theme.Surface != preferences.Theme.Surface)
                 Ui.SetTheme(next.Theme);
             preferences = next;
             note.Apply(preferences);
+            desktop?.Apply(preferences);
+            settingsWindow?.FollowWindowSize(preferences.Theme);
             note.ShowNotice(null);
             return true;
         }

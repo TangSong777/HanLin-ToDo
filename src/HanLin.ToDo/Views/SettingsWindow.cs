@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -17,9 +18,13 @@ internal sealed class SettingsWindow : Window
     private readonly Slider size;
     private readonly Slider radius;
     private readonly Slider padding;
-    private readonly Slider width;
+    private readonly Slider zoom;
+    private readonly TextBox width;
+    private readonly TextBox height;
     private readonly CheckBox startup;
     private readonly TextBlock message = Ui.Text("", 12, "OverdueBrush");
+    private int displayedWidth;
+    private int displayedHeight;
 
     public SettingsWindow(NoteTheme theme, bool startWithWindows, Action openTasks,
         Func<NoteTheme, bool, string?> save)
@@ -35,13 +40,38 @@ internal sealed class SettingsWindow : Window
         FontSize = 14;
         SetResourceReference(BackgroundProperty, "SurfaceBrush");
         SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
-        Content = new ScrollViewer { Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var frame = new DockPanel();
+        Content = frame;
 
-        var heading = Ui.Text("便签外观", 20, "InkBrush");
+        var heading = Ui.Text("尺寸和比例", 19, "InkBrush");
         heading.FontWeight = FontWeights.SemiBold;
         heading.Margin = new Thickness(0, 0, 0, 7);
         fields.Children.Add(heading);
 
+        displayedWidth = theme.Width;
+        displayedHeight = theme.Height;
+        var dimensions = new Grid();
+        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(12) });
+        dimensions.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        width = AddDimension(dimensions, "宽度", theme.Width, 0);
+        height = AddDimension(dimensions, "高度", theme.Height, 2);
+        fields.Children.Add(dimensions);
+        zoom = Scale("界面比例", theme.Scale, NoteTheme.MinimumScale, NoteTheme.MaximumScale, "%", 5);
+        var resetSize = Ui.Button("恢复默认尺寸和比例", () =>
+        {
+            width.Text = DimensionText(NoteTheme.DefaultWidth);
+            height.Text = DimensionText(NoteTheme.DefaultHeight);
+            zoom.Value = 100;
+        });
+        resetSize.HorizontalAlignment = HorizontalAlignment.Left;
+        resetSize.Margin = new Thickness(0, 3, 0, 8);
+        fields.Children.Add(resetSize);
+
+        var appearance = Ui.Text("颜色和文字", 17, "InkBrush");
+        appearance.FontWeight = FontWeights.SemiBold;
+        appearance.Margin = new Thickness(0, 5, 0, 1);
+        fields.Children.Add(appearance);
         accent = ColorField("主色", theme.Accent);
         surface = ColorField("底色", theme.Surface);
         font = new ComboBox { Margin = new Thickness(0, 3, 0, 0), MinHeight = 27 };
@@ -53,7 +83,6 @@ internal sealed class SettingsWindow : Window
         size = Scale("字号", theme.Size, 13, 22);
         radius = Scale("圆角", theme.Radius, 0, 24);
         padding = Scale("行间留白", theme.Padding, 2, 14);
-        width = Scale("宽度", theme.Width, 270, 460);
 
         startup = new CheckBox
         {
@@ -70,7 +99,7 @@ internal sealed class SettingsWindow : Window
         message.Margin = new Thickness(0, 0, 0, 7);
         fields.Children.Add(message);
 
-        var buttons = new DockPanel();
+        var buttons = new DockPanel { Margin = new Thickness(20, 3, 20, 13) };
         var open = Ui.Button("打开任务文件", openTasks);
         DockPanel.SetDock(open, Dock.Left);
         buttons.Children.Add(open);
@@ -80,6 +109,11 @@ internal sealed class SettingsWindow : Window
         saveButtons.Children.Add(cancel);
         var apply = Ui.Button("保存", () =>
         {
+            if (!TryDimension(width.Text, out int newWidth) || !TryDimension(height.Text, out int newHeight))
+            {
+                ShowError("请输入有效的宽度和高度。");
+                return;
+            }
             var updated = new NoteTheme
             {
                 Accent = accent.Text.Trim(),
@@ -88,7 +122,9 @@ internal sealed class SettingsWindow : Window
                 Size = (int)size.Value,
                 Radius = (int)radius.Value,
                 Padding = (int)padding.Value,
-                Width = (int)width.Value
+                Width = newWidth,
+                Height = newHeight,
+                Scale = (int)zoom.Value
             };
             string? error = !NoteTheme.IsColor(updated.Accent) || !NoteTheme.IsColor(updated.Surface)
                 ? "请输入 # 加六位颜色值，也可以点击色块选择。"
@@ -96,15 +132,50 @@ internal sealed class SettingsWindow : Window
             if (error is null)
                 Close();
             else
-            {
-                message.Text = error;
-                message.Visibility = Visibility.Visible;
-            }
+                ShowError(error);
         }, primary: true);
         apply.IsDefault = true;
         saveButtons.Children.Add(apply);
         buttons.Children.Add(saveButtons);
-        fields.Children.Add(buttons);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        frame.Children.Add(buttons);
+        frame.Children.Add(new ScrollViewer { Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+    }
+
+    public void FollowWindowSize(NoteTheme theme)
+    {
+        if (width.Text == DimensionText(displayedWidth))
+            width.Text = DimensionText(theme.Width);
+        if (height.Text == DimensionText(displayedHeight))
+            height.Text = DimensionText(theme.Height);
+        displayedWidth = theme.Width;
+        displayedHeight = theme.Height;
+    }
+
+    private static TextBox AddDimension(Grid group, string label, int value, int column)
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(Ui.Text(label, 13, "MutedBrush"));
+        var input = Ui.Input(label, DimensionText(value));
+        input.MaxLength = 5;
+        input.Margin = new Thickness(0, 3, 0, 0);
+        stack.Children.Add(input);
+        Grid.SetColumn(stack, column);
+        group.Children.Add(stack);
+        return input;
+    }
+
+    private static string DimensionText(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static bool TryDimension(string value, out int dimension) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out dimension)
+        && dimension is > 0 and <= NoteTheme.MaximumDimension;
+
+    private void ShowError(string text)
+    {
+        message.Text = text;
+        message.Visibility = Visibility.Visible;
+        message.BringIntoView();
     }
 
     private TextBox ColorField(string label, string value)
@@ -140,24 +211,24 @@ internal sealed class SettingsWindow : Window
         return input;
     }
 
-    private Slider Scale(string label, int initial, int minimum, int maximum)
+    private Slider Scale(string label, int initial, int minimum, int maximum, string unit = "", int step = 1)
     {
         var row = new DockPanel { Margin = new Thickness(0, 7, 0, 0) };
         var title = Ui.Text(label, 13, "InkBrush");
         title.Width = 80;
         DockPanel.SetDock(title, Dock.Left);
         row.Children.Add(title);
-        var amount = Ui.Text(initial.ToString(), 13, "MutedBrush");
-        amount.Width = 36;
+        var amount = Ui.Text(initial.ToString(CultureInfo.InvariantCulture) + unit, 13, "MutedBrush");
+        amount.Width = 43;
         amount.TextAlignment = TextAlignment.Right;
         DockPanel.SetDock(amount, Dock.Right);
         row.Children.Add(amount);
         var slider = new Slider
         {
             Minimum = minimum, Maximum = maximum, Value = initial,
-            TickFrequency = 1, IsSnapToTickEnabled = true, SmallChange = 1
+            TickFrequency = step, IsSnapToTickEnabled = true, SmallChange = step
         };
-        slider.ValueChanged += (_, _) => amount.Text = ((int)slider.Value).ToString();
+        slider.ValueChanged += (_, _) => amount.Text = ((int)slider.Value).ToString(CultureInfo.InvariantCulture) + unit;
         slider.AutomationName(label);
         row.Children.Add(slider);
         fields.Children.Add(row);

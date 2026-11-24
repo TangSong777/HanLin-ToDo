@@ -100,24 +100,43 @@ internal sealed partial class TaskFile(string path)
 
 internal sealed record NoteTheme
 {
+    public const int DefaultWidth = 336;
+    public const int DefaultHeight = 308;
+    public const int MinimumScale = 75;
+    public const int MaximumScale = 160;
+    public const int MaximumDimension = 16384;
+
     public string Accent { get; init; } = "#E48887";
     public string Surface { get; init; } = "#FFFCF9";
     public string Font { get; init; } = "Microsoft YaHei UI";
     public int Size { get; init; } = 16;
     public int Radius { get; init; } = 16;
     public int Padding { get; init; } = 8;
-    public int Width { get; init; } = 336;
+    public int Width { get; init; } = DefaultWidth;
+    public int Height { get; init; } = DefaultHeight;
+    public int Scale { get; init; } = 100;
 
-    public NoteTheme Normalize() => this with
+    internal int MinimumWidth => (int)Math.Ceiling(236 * Scale / 100.0);
+    internal int MinimumHeight => (int)Math.Ceiling(150 * Scale / 100.0);
+
+    public NoteTheme Normalize()
     {
-        Accent = IsColor(Accent) ? Accent : "#E48887",
-        Surface = IsColor(Surface) ? Surface : "#FFFCF9",
-        Font = Font is "SimSun" ? Font : "Microsoft YaHei UI",
-        Size = Math.Clamp(Size, 13, 22),
-        Radius = Math.Clamp(Radius, 0, 24),
-        Padding = Math.Clamp(Padding, 2, 14),
-        Width = Math.Clamp(Width, 270, 460)
-    };
+        var normalized = this with
+        {
+            Accent = IsColor(Accent) ? Accent : "#E48887",
+            Surface = IsColor(Surface) ? Surface : "#FFFCF9",
+            Font = Font is "SimSun" ? Font : "Microsoft YaHei UI",
+            Size = Math.Clamp(Size, 13, 22),
+            Radius = Math.Clamp(Radius, 0, 24),
+            Padding = Math.Clamp(Padding, 2, 14),
+            Scale = Math.Clamp(Scale, MinimumScale, MaximumScale)
+        };
+        return normalized with
+        {
+            Width = Math.Clamp(Width, normalized.MinimumWidth, MaximumDimension),
+            Height = Math.Clamp(Height, normalized.MinimumHeight, MaximumDimension)
+        };
+    }
 
     public static bool IsColor(string? value) =>
         value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);

@@ -1,21 +1,27 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Threading;
 
 namespace HanLin.ToDo;
 
 internal sealed class TaskEditor : Border
 {
-    private static readonly string[] DateFormats = ["yyyy-M-d H:mm", "yyyy-M-d'T'H:mm"];
+    private static readonly CultureInfo DateCulture = CultureInfo.GetCultureInfo("zh-CN");
+    private static readonly string[] TimeFormats = ["H:mm", "HH:mm"];
+    private const string DefaultTime = "23:59";
     private readonly TextBox title;
-    private readonly TextBox deadline;
+    private readonly DatePicker date;
+    private readonly ComboBox time;
     private readonly TextBlock error;
     private readonly Func<string, DateTime?, string?> save;
     private readonly Action cancel;
+    private bool invalidDate;
 
     public TaskEditor(string name, DateTime? due, Func<string, DateTime?, string?> save, Action cancel)
     {
@@ -32,21 +38,77 @@ internal sealed class TaskEditor : Border
         Child = fields;
         title = Ui.Input("任务", name);
         title.MaxLength = 300;
-        deadline = Ui.Input("截止时间", due?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "");
-        deadline.MaxLength = 25;
         fields.Children.Add(Ui.Text("任务"));
         fields.Children.Add(title);
-        var label = Ui.Text("截止时间（可空）", 12, "MutedBrush");
-        label.Margin = new Thickness(0, 7, 0, 2);
-        fields.Children.Add(label);
-        fields.Children.Add(deadline);
-        deadline.ToolTip = "例如 2026-11-25 18:00";
+
+        date = new DatePicker
+        {
+            Style = (Style)Application.Current.FindResource("SoftDatePicker"),
+            Language = XmlLanguage.GetLanguage("zh-CN"),
+            FirstDayOfWeek = DayOfWeek.Monday,
+            SelectedDateFormat = DatePickerFormat.Short,
+            DisplayDate = due?.Date ?? DateTime.Today,
+            SelectedDate = due?.Date
+        };
+        date.AutomationName("截止日期");
+        time = new ComboBox
+        {
+            IsEditable = true,
+            IsEnabled = due.HasValue,
+            IsTextSearchEnabled = false,
+            MinHeight = 30,
+            MaxDropDownHeight = 182,
+            ItemsSource = Enumerable.Range(0, 48)
+                .Select(slot => TimeOnly.MinValue.AddMinutes(slot * 30).ToString("HH:mm", CultureInfo.InvariantCulture))
+                .Append(DefaultTime),
+            Text = due?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? DefaultTime
+        };
+        time.AutomationName("截止时间");
+        time.ToolTip = "选择或输入时间，默认 23:59。";
+
+        var scheduleLabel = new DockPanel { Margin = new Thickness(0, 5, 0, 1) };
+        var clear = Ui.Button("清除日期", ClearDeadline);
+        clear.FontSize = 11;
+        clear.MinHeight = 22;
+        clear.Padding = new Thickness(5, 0, 5, 0);
+        DockPanel.SetDock(clear, Dock.Right);
+        scheduleLabel.Children.Add(clear);
+        var label = Ui.Text("截止日期（可选）", 12, "MutedBrush");
+        label.VerticalAlignment = VerticalAlignment.Center;
+        scheduleLabel.Children.Add(label);
+        fields.Children.Add(scheduleLabel);
+
+        var schedule = new Grid();
+        schedule.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        schedule.ColumnDefinitions.Add(new() { Width = new GridLength(72) });
+        schedule.Children.Add(date);
+        time.Margin = new Thickness(6, 0, 0, 0);
+        Grid.SetColumn(time, 1);
+        schedule.Children.Add(time);
+        fields.Children.Add(schedule);
 
         error = Ui.Text("", 12, "OverdueBrush");
         error.TextWrapping = TextWrapping.Wrap;
         error.Visibility = Visibility.Collapsed;
         error.Margin = new Thickness(0, 5, 0, 0);
         fields.Children.Add(error);
+        date.SelectedDateChanged += (_, _) =>
+        {
+            invalidDate = false;
+            time.IsEnabled = date.SelectedDate.HasValue;
+            error.Visibility = Visibility.Collapsed;
+        };
+        date.CalendarOpened += (_, _) =>
+        {
+            invalidDate = false;
+            error.Visibility = Visibility.Collapsed;
+        };
+        date.DateValidationError += (_, args) =>
+        {
+            args.ThrowException = false;
+            invalidDate = true;
+            ShowError("日期格式无效，可以打开日历选择。");
+        };
 
         var buttons = new StackPanel
         {
@@ -68,12 +130,14 @@ internal sealed class TaskEditor : Border
 
     private void OnKey(object sender, KeyEventArgs args)
     {
+        if (date.IsDropDownOpen || time.IsDropDownOpen)
+            return;
         if (args.Key == Key.Escape)
         {
             cancel();
             args.Handled = true;
         }
-        else if (args.Key == Key.Enter && (title.IsKeyboardFocused || deadline.IsKeyboardFocused))
+        else if (args.Key == Key.Enter && (title.IsKeyboardFocused || date.IsKeyboardFocusWithin || time.IsKeyboardFocusWithin))
         {
             Commit();
             args.Handled = true;
@@ -90,22 +154,46 @@ internal sealed class TaskEditor : Border
             return;
         }
 
-        DateTime? due = null;
-        string value = deadline.Text.Trim();
-        if (value.Length > 0)
+        if (invalidDate)
         {
-            if (!DateTime.TryParseExact(value, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            ShowError("日期格式无效，可以打开日历选择。");
+            date.Focus();
+            return;
+        }
+        DateTime? due = null;
+        string dateText = date.Text.Trim();
+        if (dateText.Length > 0)
+        {
+            if (!DateTime.TryParse(dateText, DateCulture, DateTimeStyles.AllowWhiteSpaces, out var day))
             {
-                ShowError("请用年-月-日 时:分，例如 2026-11-25 18:00。");
-                deadline.Focus();
+                ShowError("请选择日期，或输入年-月-日。");
+                date.Focus();
                 return;
             }
-            due = date;
+            string timeText = time.Text.Trim();
+            if (!TimeOnly.TryParseExact(timeText.Length == 0 ? DefaultTime : timeText, TimeFormats,
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var clock))
+            {
+                ShowError("请输入 24 小时制时间，例如 18:30。");
+                time.Focus();
+                return;
+            }
+            due = day.Date.Add(clock.ToTimeSpan());
         }
 
         string? message = save(name, due);
         if (message is not null)
             ShowError(message);
+    }
+
+    private void ClearDeadline()
+    {
+        date.SelectedDate = null;
+        date.Text = "";
+        time.Text = DefaultTime;
+        time.IsEnabled = false;
+        invalidDate = false;
+        error.Visibility = Visibility.Collapsed;
     }
 
     private void ShowError(string message)

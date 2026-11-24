@@ -13,25 +13,37 @@ namespace HanLin.ToDo;
 internal sealed class DesktopSurface : IDisposable
 {
     private readonly NoteView view;
-    private readonly Action<Point> positionSaved;
+    private readonly Action<NotePreferences> savePlacement;
+    private readonly DispatcherTimer dragTimer;
+    private NotePreferences preferences;
     private HwndSource? source;
     private IntPtr parent;
     private Point? position;
     private Point dragStart;
-    private Point originalPosition;
+    private Native.Rect originalBounds;
+    private ResizeEdge resizeEdges;
     private bool dragging;
     private bool movedPastThreshold;
     private bool disposed;
 
-    public DesktopSurface(NoteView view, NotePreferences preferences, Action<Point> positionSaved)
+    public DesktopSurface(NoteView view, NotePreferences preferences, Action<NotePreferences> savePlacement)
     {
         this.view = view;
-        this.positionSaved = positionSaved;
-        if (preferences.Left is int left && preferences.Top is int top)
-            position = new Point(left, top);
+        this.preferences = preferences;
+        this.savePlacement = savePlacement;
+        Apply(preferences);
 
+        dragTimer = new DispatcherTimer(DispatcherPriority.Input, view.Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(16)
+        };
+        dragTimer.Tick += (_, _) =>
+        {
+            MoveFromCursor();
+            if (!Native.PrimaryButtonDown())
+                EndDrag();
+        };
         view.PreviewMouseLeftButtonDown += BeginDrag;
-        view.PreviewMouseMove += ContinueDrag;
         view.PreviewMouseLeftButtonUp += (_, _) =>
         {
             if (!dragging)
@@ -39,13 +51,14 @@ internal sealed class DesktopSurface : IDisposable
             MoveFromCursor();
             EndDrag();
         };
-        view.LostMouseCapture += (_, _) => EndDrag();
-        view.SizeChanged += (_, _) => view.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-            new Action(() =>
-            {
-                if (!dragging)
-                    PositionWindow(position);
-            }));
+    }
+
+    public void Apply(NotePreferences next)
+    {
+        preferences = next;
+        position = next.Left is int left && next.Top is int top ? new Point(left, top) : null;
+        if (!dragging)
+            PositionWindow(position);
     }
 
     public void Refresh(bool visible)
@@ -85,23 +98,37 @@ internal sealed class DesktopSurface : IDisposable
         if (!dragging)
             return;
         dragging = false;
+        dragTimer.Stop();
+        bool resized = resizeEdges != ResizeEdge.None;
+        resizeEdges = ResizeEdge.None;
         if (view.IsMouseCaptured)
             view.ReleaseMouseCapture();
 
         if (source is not { IsDisposed: false } || !Native.GetWindowRect(source.Handle, out var window))
             return;
-        var current = new Point(window.Left, window.Top);
-        if (current == originalPosition)
+        if (window.Left == originalBounds.Left && window.Top == originalBounds.Top &&
+            window.Width == originalBounds.Width && window.Height == originalBounds.Height)
             return;
-        position = current;
-        positionSaved(current);
+
+        NoteTheme theme = preferences.Theme;
+        if (resized)
+        {
+            double scale = WindowScale(source.Handle);
+            theme = (theme with
+            {
+                Width = ToCardUnits(window.Width, scale),
+                Height = ToCardUnits(window.Height, scale)
+            }).Normalize();
+        }
+        savePlacement(preferences with { Left = window.Left, Top = window.Top, Theme = theme });
     }
 
     private void BuildHost(IntPtr host)
     {
         // A desktop-owned popup can still compose independently on Explorer's raised desktop.
         // Put it immediately above the icon host and below ordinary application windows.
-        var parameters = new HwndSourceParameters("HanLin-ToDo Desktop", 356, 240)
+        var parameters = new HwndSourceParameters("HanLin-ToDo Desktop",
+            NoteTheme.DefaultWidth + 2 * NoteView.ShadowMargin, NoteTheme.DefaultHeight + 2 * NoteView.ShadowMargin)
         {
             ParentWindow = host,
             WindowStyle = Native.Popup,
@@ -109,7 +136,12 @@ internal sealed class DesktopSurface : IDisposable
             UsesPerPixelTransparency = true,
             HwndSourceHook = NoteMessage
         };
-        source = new HwndSource(parameters) { SizeToContent = SizeToContent.WidthAndHeight };
+        source = new HwndSource(parameters) { SizeToContent = SizeToContent.Manual };
+        source.DpiChanged += (_, _) => view.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (!dragging)
+                PositionWindow(position);
+        }));
         parent = host;
         source.RootVisual = view;
         PositionWindow(position);
@@ -123,20 +155,26 @@ internal sealed class DesktopSurface : IDisposable
         var monitorPoint = pointer ?? target;
         var screen = monitorPoint is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen;
         var area = screen?.WorkingArea ?? Forms.SystemInformation.WorkingArea;
-        int width = rect.Right - rect.Left;
-        int height = rect.Bottom - rect.Top;
+        double scale = WindowScale(source.Handle);
+        int width = Math.Min(ToPixels(preferences.Theme.Width, scale), area.Width);
+        int height = Math.Min(ToPixels(preferences.Theme.Height, scale), area.Height);
         var point = target ?? new Point(area.Right - width - 18, area.Top + 20);
         int x = Math.Clamp(point.X, area.Left, Math.Max(area.Left, area.Right - width));
         int y = Math.Clamp(point.Y, area.Top, Math.Max(area.Top, area.Bottom - height));
+        PlaceWindow(source.Handle, rect, new Native.Rect(x, y, x + width, y + height));
+    }
 
+    private void PlaceWindow(IntPtr handle, Native.Rect current, Native.Rect target)
+    {
         IntPtr desktopPredecessor = Native.GetWindow(parent, Native.PreviousWindow);
-        bool keepOrder = desktopPredecessor == source.Handle;
-        if (keepOrder && x == rect.Left && y == rect.Top)
+        bool keepOrder = dragging || desktopPredecessor == handle;
+        bool sameSize = current.Width == target.Width && current.Height == target.Height;
+        if (keepOrder && sameSize && target.Left == current.Left && target.Top == current.Top)
             return;
         if ((Native.GetExtendedStyle(desktopPredecessor) & Native.Topmost) != 0)
             desktopPredecessor = Native.NotTopmost;
-        Native.SetWindowPos(source.Handle, desktopPredecessor, x, y, 0, 0,
-            Native.NoSize | Native.NoActivate | Native.NoOwnerZOrder | (keepOrder ? Native.NoZOrder : 0U));
+        Native.SetWindowPos(handle, desktopPredecessor, target.Left, target.Top, target.Width, target.Height,
+            Native.NoActivate | Native.NoOwnerZOrder | (sameSize ? Native.NoSize : 0U) | (keepOrder ? Native.NoZOrder : 0U));
     }
 
     private static IntPtr NoteMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -149,28 +187,21 @@ internal sealed class DesktopSurface : IDisposable
 
     private void BeginDrag(object sender, MouseButtonEventArgs args)
     {
-        var target = view.InputHitTest(args.GetPosition(view));
-        if (!view.CanDragFrom(target) || source is null || source.IsDisposed
+        var hit = args.GetPosition(view);
+        if (dragging || !view.IsCardSurface(view.InputHitTest(hit)) || source is null || source.IsDisposed
             || !Native.GetCursorPos(out var cursor) || !Native.GetWindowRect(source.Handle, out var window))
             return;
 
-        originalPosition = new Point(window.Left, window.Top);
+        resizeEdges = view.ResizeEdgesAt(hit);
+        if (resizeEdges == ResizeEdge.None && view.IsLocked)
+            return;
+        originalBounds = window;
         dragStart = new Point(cursor.X, cursor.Y);
         movedPastThreshold = false;
-        dragging = view.CaptureMouse();
-        args.Handled = dragging;
-    }
-
-    private void ContinueDrag(object sender, MouseEventArgs args)
-    {
-        if (!dragging)
-            return;
-        if (args.LeftButton != MouseButtonState.Pressed)
-        {
-            EndDrag();
-            return;
-        }
-        MoveFromCursor();
+        dragging = true;
+        view.CaptureMouse();
+        dragTimer.Start();
+        args.Handled = true;
     }
 
     private void MoveFromCursor()
@@ -188,8 +219,45 @@ internal sealed class DesktopSurface : IDisposable
             if (!movedPastThreshold)
                 return;
         }
-        PositionWindow(new Point(originalPosition.X + dx, originalPosition.Y + dy), new Point(cursor.X, cursor.Y));
+        if (resizeEdges == ResizeEdge.None)
+            PositionWindow(new Point(originalBounds.Left + dx, originalBounds.Top + dy), new Point(cursor.X, cursor.Y));
+        else
+            ResizeWindow(dx, dy);
     }
+
+    private void ResizeWindow(int dx, int dy)
+    {
+        if (source is not { IsDisposed: false } || !Native.GetWindowRect(source.Handle, out var current))
+            return;
+
+        var target = originalBounds;
+        var center = new Point(target.Left + target.Width / 2, target.Top + target.Height / 2);
+        var area = Forms.Screen.FromPoint(center).WorkingArea;
+        double scale = WindowScale(source.Handle);
+        int minWidth = Math.Min(target.Width, ToPixels(preferences.Theme.MinimumWidth, scale));
+        int minHeight = Math.Min(target.Height, ToPixels(preferences.Theme.MinimumHeight, scale));
+        if ((resizeEdges & ResizeEdge.Left) != 0)
+            target.Left = Math.Clamp(target.Left + dx, area.Left, Math.Max(area.Left, target.Right - minWidth));
+        if ((resizeEdges & ResizeEdge.Right) != 0)
+            target.Right = Math.Clamp(target.Right + dx, target.Left + minWidth, Math.Max(area.Right, target.Left + minWidth));
+        if ((resizeEdges & ResizeEdge.Top) != 0)
+            target.Top = Math.Clamp(target.Top + dy, area.Top, Math.Max(area.Top, target.Bottom - minHeight));
+        if ((resizeEdges & ResizeEdge.Bottom) != 0)
+            target.Bottom = Math.Clamp(target.Bottom + dy, target.Top + minHeight, Math.Max(area.Bottom, target.Top + minHeight));
+        PlaceWindow(source.Handle, current, target);
+    }
+
+    private static double WindowScale(IntPtr window)
+    {
+        uint dpi = Native.GetDpiForWindow(window);
+        return dpi > 0 ? dpi / 96.0 : 1;
+    }
+
+    private static int ToPixels(int cardUnits, double scale) =>
+        (int)Math.Round((cardUnits + 2 * NoteView.ShadowMargin) * scale);
+
+    private static int ToCardUnits(int pixels, double scale) =>
+        (int)Math.Round(pixels / scale) - 2 * NoteView.ShadowMargin;
 
     private void ResetHost()
     {
@@ -248,6 +316,7 @@ internal static class Native
         && FindWindowEx(window, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero;
 
     public static int GetExtendedStyle(IntPtr window) => window == IntPtr.Zero ? 0 : GetWindowLong(window, -20);
+    public static bool PrimaryButtonDown() => GetAsyncKeyState(Forms.SystemInformation.MouseButtonsSwapped ? 0x02 : 0x01) < 0;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Point(int x, int y)
@@ -257,9 +326,11 @@ internal static class Native
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct Rect
+    public struct Rect(int left, int top, int right, int bottom)
     {
-        public int Left, Top, Right, Bottom;
+        public int Left = left, Top = top, Right = right, Bottom = bottom;
+        public readonly int Width => Right - Left;
+        public readonly int Height => Bottom - Top;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -290,7 +361,13 @@ internal static class Native
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
 
     [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out Point point);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int key);
 
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
