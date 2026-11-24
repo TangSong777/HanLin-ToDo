@@ -16,7 +16,7 @@ namespace HanLin.ToDo;
 internal sealed class TaskDetailsEditor : StackPanel
 {
     private readonly TodoDetails original;
-    private readonly CheckBox important;
+    private readonly CheckBox pinned;
     private readonly CheckBox today;
     private readonly ComboBox list;
     private readonly ComboBox repeat;
@@ -52,9 +52,9 @@ internal sealed class TaskDetailsEditor : StackPanel
         Margin = new Thickness(0, 5, 1, 1);
 
         var flags = new WrapPanel();
-        important = Flag("标为重要", details.Important);
+        pinned = Flag("置顶任务", details.Pinned);
         today = Flag("加到今天", details.MyDay == DateOnly.FromDateTime(DateTime.Now));
-        flags.Children.Add(important);
+        flags.Children.Add(pinned);
         flags.Children.Add(today);
         Children.Add(flags);
 
@@ -214,7 +214,7 @@ internal sealed class TaskDetailsEditor : StackPanel
             .Distinct(StringComparer.CurrentCultureIgnoreCase).ToArray();
         details = details with
         {
-            Important = important.IsChecked == true,
+            Pinned = pinned.IsChecked == true,
             MyDay = today.IsChecked == true ? DateOnly.FromDateTime(DateTime.Now) : null,
             ListId = list.SelectedValue as string,
             Repeat = cadence,

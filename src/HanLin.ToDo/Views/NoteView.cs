@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
@@ -17,13 +18,13 @@ internal sealed partial class NoteView : Border
 {
     public const int ShadowMargin = 9;
     private readonly Border card;
+    private readonly Border shadow;
     private readonly Border titleBand;
     private readonly Grid layout;
     private readonly Button lockButton;
-    private readonly Border lockGlyph;
-    private readonly TextBlock lockText;
     private readonly FrameworkElement dragGrip;
     private readonly Button completedButton;
+    private readonly ScrollViewer taskScroll;
     private readonly StackPanel pending = new();
     private readonly StackPanel completed = new();
     private readonly TextBlock notice = Ui.Text("", 12, "OverdueBrush");
@@ -34,6 +35,7 @@ internal sealed partial class NoteView : Border
     private TaskEditor? editor;
     private DateTime lastRender;
     private bool initialized;
+    private bool loadedTasks;
 
     public event Action? NewRequested;
     public event Action? SettingsRequested;
@@ -46,17 +48,24 @@ internal sealed partial class NoteView : Border
     public NoteView()
     {
         Padding = new Thickness(ShadowMargin);
-        UseLayoutRounding = true;
+        Ui.ConfigureText(this);
         SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
 
-        card = new Border
+        var surface = new Grid();
+        // Keep the shadow's intermediate render target outside the text subtree.
+        shadow = new Border
         {
-            BorderThickness = new Thickness(1),
+            IsHitTestVisible = false,
             Effect = new DropShadowEffect { Color = Colors.Black, Opacity = 0.13, BlurRadius = 15, ShadowDepth = 2 }
         };
+        shadow.SetResourceReference(BackgroundProperty, "SurfaceBrush");
+        surface.Children.Add(shadow);
+        card = new Border { BorderThickness = new Thickness(1) };
         card.SetResourceReference(BackgroundProperty, "SurfaceBrush");
         card.SetResourceReference(BorderBrushProperty, "EdgeBrush");
-        Child = card;
+        RenderOptions.SetClearTypeHint(card, ClearTypeHint.Enabled);
+        surface.Children.Add(card);
+        Child = surface;
         layout = new Grid();
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -68,16 +77,7 @@ internal sealed partial class NoteView : Border
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(actions, Dock.Right);
         actions.Children.Add(Ui.Button("新建待办", () => NewRequested?.Invoke(), "plus"));
-        lockButton = Ui.Button("锁定位置", () => LockRequested?.Invoke());
-        lockButton.Height = 30;
-        lockButton.Padding = new Thickness(6, 3, 6, 3);
-        lockGlyph = new Border { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-        lockText = Ui.Text("锁定", 12);
-        lockText.VerticalAlignment = VerticalAlignment.Center;
-        var lockContent = new StackPanel { Orientation = Orientation.Horizontal };
-        lockContent.Children.Add(lockGlyph);
-        lockContent.Children.Add(lockText);
-        lockButton.Content = lockContent;
+        lockButton = Ui.Button("锁定位置", () => LockRequested?.Invoke(), "unlock");
         actions.Children.Add(lockButton);
         actions.Children.Add(Ui.Button("便签设置", () => SettingsRequested?.Invoke(), "settings"));
         header.Children.Add(actions);
@@ -105,13 +105,13 @@ internal sealed partial class NoteView : Border
         pending.AutomationName("未完成任务");
         lists.Children.Add(pending);
         completedButton = Ui.Button("已完成", () => CompletedRequested?.Invoke());
-        completedButton.HorizontalContentAlignment = HorizontalAlignment.Left;
+        completedButton.HorizontalAlignment = HorizontalAlignment.Left;
         completedButton.SetResourceReference(Control.ForegroundProperty, "MutedBrush");
         completedButton.FontSize = 13;
         completedButton.Margin = new Thickness(0, 3, 0, 0);
         lists.Children.Add(completedButton);
         lists.Children.Add(completed);
-        var scroll = new ScrollViewer
+        taskScroll = new ScrollViewer
         {
             Style = (Style)Application.Current.FindResource("NoteScroll"),
             Content = lists,
@@ -121,8 +121,9 @@ internal sealed partial class NoteView : Border
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        Grid.SetRow(scroll, 2);
-        layout.Children.Add(scroll);
+        Grid.SetRow(taskScroll, 2);
+        layout.Children.Add(taskScroll);
+        taskReorderTimer.Tick += (_, _) => ContinueTaskDrag(scroll: true);
 
         notice.Margin = new Thickness(0, 3, 6, 4);
         notice.TextWrapping = TextWrapping.Wrap;
@@ -176,7 +177,7 @@ internal sealed partial class NoteView : Border
         {
             double scale = theme.Scale / 100.0;
             layout.LayoutTransform = new ScaleTransform(scale, scale);
-            card.CornerRadius = new CornerRadius(theme.Radius);
+            shadow.CornerRadius = card.CornerRadius = new CornerRadius(theme.Radius);
             double innerRadius = Math.Max(0, theme.Radius - 1) / scale;
             titleBand.CornerRadius = new CornerRadius(innerRadius, innerRadius, 0, 0);
         }
@@ -187,20 +188,26 @@ internal sealed partial class NoteView : Border
             TextElement.SetFontSize(this, theme.Size);
             Title.FontSize = theme.Size + 4;
         }
-        dragGrip.Visibility = settings.Locked ? Visibility.Hidden : Visibility.Visible;
-        string label = settings.Locked ? "位置已锁定，点击解锁" : "锁定位置";
-        lockButton.ToolTip = settings.Locked ? "点击解锁后可拖动便签。仍可从右侧或底部调整大小。" : "点击固定便签的位置。";
-        AutomationProperties.SetName(lockButton, label);
-        lockGlyph.Child = Ui.Glyph(settings.Locked ? "lock" : "unlock");
-        lockText.Text = settings.Locked ? "解锁" : "锁定";
-        if (settings.Locked)
-            lockButton.SetResourceReference(Control.BackgroundProperty, "TintBrush");
-        else
-            lockButton.Background = Brushes.Transparent;
+        if (!initialized || previous.Locked != settings.Locked)
+        {
+            dragGrip.Visibility = settings.Locked ? Visibility.Hidden : Visibility.Visible;
+            string label = settings.Locked ? "位置已锁定，点击解锁" : "锁定位置";
+            lockButton.ToolTip = label;
+            lockButton.AutomationName(label);
+            var icon = Ui.Glyph(settings.Locked ? "lock" : "unlock");
+            lockButton.Content = icon;
+            if (initialized) Ui.Reveal(icon, 2);
+            if (settings.Locked)
+                lockButton.SetResourceReference(Control.BackgroundProperty, "TintBrush");
+            else
+                lockButton.Background = Brushes.Transparent;
+        }
         if (!initialized || previous.ShowCompleted != settings.ShowCompleted || previous.TaskView != settings.TaskView
             || previous.Sort != settings.Sort
             || previous.Theme.Size != theme.Size || previous.Theme.Padding != theme.Padding)
             Render();
+        if (initialized && settings.ShowCompleted && !previous.ShowCompleted)
+            Ui.Reveal(completed);
         initialized = true;
     }
 
@@ -233,7 +240,7 @@ internal sealed partial class NoteView : Border
         var element = origin as DependencyObject;
         while (element is not null)
         {
-            if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or TaskEditor)
+            if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or ComboBox or DatePicker or TaskEditor)
                 return false;
             if (element == card)
                 return true;
@@ -257,8 +264,12 @@ internal sealed partial class NoteView : Border
             selected.Clear();
             selected.UnionWith(next.Items.Where(item => selection.Contains(Key(item))));
         }
+        var prior = snapshot;
         snapshot = next;
         Render();
+        if (loadedTasks || prior.Items.Count == 0 && next.Items.Count == 1)
+            AnimateTaskChanges(prior);
+        loadedTasks = true;
     }
 
     public void RefreshTime()
@@ -278,6 +289,8 @@ internal sealed partial class NoteView : Border
     private void Render()
     {
         lastRender = DateTime.Now;
+        ClearTaskDrag();
+        taskRows.Clear();
         pending.Children.Clear();
         completed.Children.Clear();
         RefreshTaskNavigation();
@@ -332,20 +345,25 @@ internal sealed partial class NoteView : Border
     private FrameworkElement MakeRow(TodoItem item)
     {
         var grid = new Grid { Margin = new Thickness(0, settings.Theme.Padding, 0, settings.Theme.Padding) };
-        grid.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(22) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new() { Width = new GridLength(27) });
+        grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
 
+        var handle = CanReorder ? CreateTaskHandle(item) : null;
+        if (handle is not null)
+            grid.Children.Add(handle);
         var check = new CheckBox { Style = (Style)Application.Current.FindResource("SoftCheck"),
             IsChecked = selecting ? selected.Contains(item) : item.Done };
         AutomationProperties.SetName(check, (selecting ? "选择 " : item.Done ? "取消完成 " : "完成 ") + item.Title);
         check.Checked += (_, _) => SetRowSelectionOrDone(item, true);
         check.Unchecked += (_, _) => SetRowSelectionOrDone(item, false);
+        Grid.SetColumn(check, 1);
         grid.Children.Add(check);
 
         var text = new StackPanel { Margin = new Thickness(4, 0, 3, 0), VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(text, 1);
+        Grid.SetColumn(text, 2);
         grid.Children.Add(text);
         var title = Ui.Text(item.Title, settings.Theme.Size, item.Done ? "MutedBrush" : "InkBrush");
         title.TextWrapping = TextWrapping.Wrap;
@@ -386,27 +404,48 @@ internal sealed partial class NoteView : Border
             text.Children.Add(extra);
         }
 
-        var star = Ui.Button((item.Details.Important ? "取消重要 " : "标为重要 ") + item.Title,
-            () => ToggleImportance(item), "star");
-        star.Width = 27;
-        star.VerticalAlignment = VerticalAlignment.Center;
-        if (item.Details.Important && star.Content is System.Windows.Shapes.Path glyph)
-            glyph.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
-        Grid.SetColumn(star, 2);
-        grid.Children.Add(star);
+        var pin = Ui.Button((item.Details.Pinned ? "取消置顶 " : "置顶 ") + item.Title, () => TogglePin(item), "pin");
+        pin.Width = 28;
+        pin.VerticalAlignment = VerticalAlignment.Center;
+        if (item.Details.Pinned)
+        {
+            pin.SetResourceReference(Control.BackgroundProperty, "TintBrush");
+            if (pin.Content is System.Windows.Shapes.Path glyph)
+                glyph.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "OverdueBrush");
+        }
+        Grid.SetColumn(pin, 3);
+        grid.Children.Add(pin);
         var edit = Ui.Button("编辑 " + item.Title, () => BeginEdit(item), "pencil");
         edit.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(edit, 3);
+        Grid.SetColumn(edit, 4);
         grid.Children.Add(edit);
 
-        var row = new Border { Child = grid, BorderThickness = new Thickness(0, 0, 0, 1) };
+        var row = new Border { Child = grid, Style = (Style)Application.Current.FindResource("SoftTaskRow") };
         row.SetResourceReference(BorderBrushProperty, "LineBrush");
         if (!selecting)
         {
-            row.ContextMenu = new ContextMenu();
+            row.ContextMenu = CreateMenu();
             row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
         }
-        return row;
+        var insertion = new Border
+        {
+            Height = 2, CornerRadius = new CornerRadius(1), Margin = new Thickness(2, 0, 1, 0),
+            IsHitTestVisible = false, Visibility = Visibility.Collapsed
+        };
+        insertion.SetResourceReference(BackgroundProperty, "AccentBrush");
+        var container = new Grid();
+        container.Children.Add(row);
+        container.Children.Add(insertion);
+        taskRows.Add(item, new TaskRow(row, insertion, handle));
+        return container;
+    }
+
+    private void AnimateTaskChanges(TodoSnapshot prior)
+    {
+        var oldById = prior.Items.Where(item => item.Details.Id is not null).ToLookup(item => item.Details.Id);
+        foreach (var item in taskRows.Keys.Where(item => item.Details.Id is { } id &&
+            !oldById[id].Any(old => old.Done == item.Done && old.Details.Pinned == item.Details.Pinned)).Take(4))
+            Ui.Reveal(taskRows[item].Face);
     }
 
     private void BeginEdit(TodoItem item)
@@ -420,6 +459,7 @@ internal sealed partial class NoteView : Border
             return error;
         }, CloseEditor);
         Render();
+        Ui.Reveal(editor);
         editor.FocusTitle();
         editor.BringIntoView();
     }

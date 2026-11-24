@@ -22,6 +22,7 @@ internal sealed class ListsWindow : Window
     public ListsWindow(NoteTheme theme, TodoCatalog catalog, string currentView,
         Func<string?, string, string?, string?, string?> save, Func<string, string?> removeList)
     {
+        Ui.ConfigureText(this);
         this.save = save;
         this.removeList = removeList;
         Title = "HanLin-ToDo · 清单和便笺";

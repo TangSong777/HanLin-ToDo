@@ -31,6 +31,7 @@ internal sealed class SettingsWindow : Window
     public SettingsWindow(NoteTheme theme, bool startWithWindows, Action openTasks,
         Func<NoteTheme, bool, string?> save)
     {
+        Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 便签设置";
         Icon = Ui.AppIcon();
         Width = 410;

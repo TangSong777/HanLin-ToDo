@@ -77,7 +77,12 @@ internal sealed class PreferencesFile(string path)
         try
         {
             var preferences = JsonSerializer.Deserialize<NotePreferences>(File.ReadAllText(path)) ?? new();
-            return preferences with { Theme = (preferences.Theme ?? new()).Normalize() };
+            return preferences with
+            {
+                Theme = (preferences.Theme ?? new()).Normalize(),
+                TaskView = preferences.TaskView == "important" ? TodoViews.Pinned : preferences.TaskView,
+                Sort = Enum.IsDefined(preferences.Sort) ? preferences.Sort : TaskSort.Due
+            };
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

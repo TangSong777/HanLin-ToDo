@@ -1,0 +1,119 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style x:Key="SoftMenu" TargetType="ContextMenu">
+    <Setter Property="OverridesDefaultStyle" Value="True"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="UseLayoutRounding" Value="True"/>
+    <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+    <Setter Property="KeyboardNavigation.DirectionalNavigation" Value="Cycle"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ContextMenu">
+          <Grid Margin="6" MinWidth="170" MaxWidth="320">
+            <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="10" IsHitTestVisible="False">
+              <Border.Effect>
+                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.19"/>
+              </Border.Effect>
+            </Border>
+            <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource EdgeBrush}"
+                    BorderThickness="1" CornerRadius="10" Padding="4" RenderOptions.ClearTypeHint="Enabled">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="520"
+                            CanContentScroll="False" Focusable="False">
+                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+              </ScrollViewer>
+            </Border>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="SoftMenuDivider" TargetType="Separator">
+    <Setter Property="Focusable" Value="False"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Separator">
+          <Border Height="1" Margin="7,3" Background="{DynamicResource LineBrush}"/>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="SoftMenuItem" TargetType="MenuItem">
+    <Setter Property="OverridesDefaultStyle" Value="True"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="MinHeight" Value="30"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="MenuItem">
+          <Grid>
+            <Border x:Name="Item" Background="Transparent" CornerRadius="6" Padding="6,3">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="25"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="15"/>
+                </Grid.ColumnDefinitions>
+                <ContentPresenter x:Name="MenuIcon" ContentSource="Icon" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Path x:Name="Selected" Width="10" Height="9" Data="M 1,5 L 4,8 L 9,2" Stretch="Uniform"
+                      Stroke="{DynamicResource OverdueBrush}" StrokeThickness="1.5"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                  VerticalAlignment="Center" Margin="2,0,4,0"/>
+                <Path x:Name="More" Grid.Column="2" Visibility="Collapsed" Data="M 2,1 L 6,5 L 2,9"
+                      Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
+                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Grid>
+            </Border>
+            <Popup x:Name="PART_Popup" Placement="Right" PlacementTarget="{Binding ElementName=Item}"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                   AllowsTransparency="True" PopupAnimation="{DynamicResource PopupMotion}"
+                   Focusable="False" HorizontalOffset="-6">
+              <Grid Margin="6" MinWidth="140" MaxWidth="280" UseLayoutRounding="True" SnapsToDevicePixels="True"
+                    TextOptions.TextFormattingMode="Display">
+                <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="10" IsHitTestVisible="False">
+                  <Border.Effect>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.19"/>
+                  </Border.Effect>
+                </Border>
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource EdgeBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="4" RenderOptions.ClearTypeHint="Enabled">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                MaxHeight="430" Focusable="False">
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                  </ScrollViewer>
+                </Border>
+              </Grid>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="Role" Value="SubmenuHeader">
+              <Setter TargetName="More" Property="Visibility" Value="Visible"/>
+            </Trigger>
+            <Trigger Property="IsHighlighted" Value="True">
+              <Setter TargetName="Item" Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+              <Setter TargetName="Item" Property="Background" Value="{DynamicResource TintBrush}"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Selected" Property="Visibility" Value="Visible"/>
+              <Setter TargetName="MenuIcon" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Item" Property="Opacity" Value="0.5"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+</ResourceDictionary>

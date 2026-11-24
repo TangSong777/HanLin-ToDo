@@ -3,7 +3,9 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 
 namespace HanLin.ToDo;
@@ -14,6 +16,7 @@ internal static class Ui
         family.Source is "MF YueHei (Noncommercial)" or "造字工房悦黑（非商用）"));
 
     public static bool HasYueHei => YueHei.Value is not null;
+    private static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
 
     public static void SetTheme(NoteTheme theme)
     {
@@ -36,9 +39,34 @@ internal static class Ui
         resources["CheckBrush"] = Brush(pale ? ColorFrom("#8F7C76") : ink);
         resources["OverdueBrush"] = Brush(pale ? ColorFrom("#93444D") : ink);
         resources["TintBrush"] = Brush(Mix(surface, accent, 0.12));
+        resources["RowHoverBrush"] = Brush(Mix(surface, accent, 0.06));
         resources["HoverBrush"] = Brush(Mix(surface, accent, 0.24));
+        resources["PressBrush"] = Brush(Mix(surface, accent, 0.37));
+        resources["AccentHoverBrush"] = Brush(Mix(accent, ink, 0.09));
         resources["EdgeBrush"] = Brush(Mix(surface, ink, 0.15));
         resources["LineBrush"] = Brush(Mix(surface, ink, 0.07));
+        resources["PopupMotion"] = MotionEnabled ? PopupAnimation.Fade : PopupAnimation.None;
+    }
+
+    public static void ConfigureText(FrameworkElement root)
+    {
+        root.UseLayoutRounding = true;
+        root.SnapsToDevicePixels = true;
+        TextOptions.SetTextFormattingMode(root, TextFormattingMode.Display);
+        TextOptions.SetTextHintingMode(root, TextHintingMode.Fixed);
+    }
+
+    public static void Reveal(FrameworkElement element, double shift = 4)
+    {
+        if (!MotionEnabled)
+            return;
+        var translation = new TranslateTransform();
+        element.RenderTransform = translation;
+        translation.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(shift, 0, TimeSpan.FromMilliseconds(150))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.Stop
+        });
     }
 
     public static Color ColorFrom(string value) => (Color)ColorConverter.ConvertFromString(value)!;
@@ -105,14 +133,19 @@ internal static class Ui
             "resize" => "M 5,11 L 11,5 M 9,11 L 11,9",
             "close" => "M 4,4 L 10,10 M 10,4 L 4,10",
             "search" => "M 9,6 A 3.5,3.5 0 1 1 2,6 A 3.5,3.5 0 1 1 9,6 M 8,9 L 12,13",
-            "star" => "M 7,1.3 L 8.7,4.8 L 12.6,5.4 L 9.8,8.2 L 10.5,12.1 L 7,10.2 L 3.5,12.1 L 4.2,8.2 L 1.4,5.4 L 5.3,4.8 Z",
+            "pin" => "M 8.4,1.8 L 12.2,5.6 L 10.5,6.2 L 8.7,8 L 8.7,10.1 L 4,5.3 L 6.1,5.3 L 7.9,3.5 Z M 6.3,7.6 L 2.2,11.8",
+            "dots" => "M 7,2.7 h .1 M 7,7 h .1 M 7,11.3 h .1",
+            "calendar" => "M 2,4 H 12 V 12 H 2 Z M 2,6.6 H 12 M 4.5,2.5 V 5 M 9.5,2.5 V 5",
+            "folder" => "M 1.6,4.1 H 5.4 L 6.6,5.6 H 12.4 V 11.3 H 1.6 Z",
+            "copy" => "M 4.8,4.7 H 11.8 V 12 H 4.8 Z M 9.5,2.3 H 2.2 V 9.7",
+            "trash" => "M 2.1,4.3 H 11.9 M 4.8,4.3 V 2.5 H 9.2 V 4.3 M 3.4,4.3 L 4.2,11.8 H 9.8 L 10.6,4.3 M 6.1,6.5 V 9.5 M 7.9,6.5 V 9.5",
             "chevron" => "M 3,5 L 7,9 L 11,5",
             _ => throw new ArgumentOutOfRangeException(nameof(icon))
         };
         var path = new System.Windows.Shapes.Path
         {
             Data = Geometry.Parse(data),
-            StrokeThickness = 1.25,
+            StrokeThickness = icon == "dots" ? 2.2 : 1.25,
             StrokeLineJoin = PenLineJoin.Round,
             StrokeStartLineCap = PenLineCap.Round,
             StrokeEndLineCap = PenLineCap.Round,

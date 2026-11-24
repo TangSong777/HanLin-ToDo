@@ -86,7 +86,7 @@ public partial class App : Application
             note.ListsRequested += ShowLists;
             note.DetailsRequested += (item, update) => Mutate(() => tasks.UpdateDetails(item, update));
             note.DuplicateRequested += item => Mutate(() => tasks.Duplicate(item));
-            note.ReorderRequested += (item, offset) => Mutate(() => tasks.MoveOrder(item, offset));
+            note.ReorderRequested += ReorderTasks;
             note.DeleteRequested += item => DeleteTasks([item]);
             note.RestoreRequested += RestoreTask;
             note.BatchMoveRequested += MoveTasks;
@@ -212,6 +212,19 @@ public partial class App : Application
         return error;
     }
 
+    private void ReorderTasks(IReadOnlyList<TodoItem> order)
+    {
+        var previousSort = preferences.Sort;
+        if (previousSort != TaskSort.Manual && !ChangePreferences(preferences with { Sort = TaskSort.Manual }))
+            return;
+        string? error = Mutate(() => tasks.Reorder(order));
+        if (error is not null && previousSort != TaskSort.Manual)
+        {
+            ChangePreferences(preferences with { Sort = previousSort });
+            note.ShowNotice(error);
+        }
+    }
+
     private void MoveTasks(IReadOnlyList<TodoItem> items, string? destination)
     {
         if (Mutate(() => tasks.MoveToList(items, destination)) is null)
@@ -258,8 +271,8 @@ public partial class App : Application
                 markdown.Append(item.Done ? "- [x] " : "- [ ] ").Append(item.Title);
                 if (item.Due is { } due)
                     markdown.Append(" 📅 ").Append(due.ToFileText());
-                if (item.Details.Important)
-                    markdown.Append(" ⭐");
+                if (item.Details.Pinned)
+                    markdown.Append(" 📌");
                 if (item.Details.Tags is { Length: > 0 } tags)
                     markdown.Append(" #").AppendJoin(" #", tags);
                 markdown.AppendLine();

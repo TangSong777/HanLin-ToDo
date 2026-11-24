@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -13,11 +12,9 @@ namespace HanLin.ToDo;
 internal sealed class TaskEditor : Border
 {
     private static readonly CultureInfo DateCulture = CultureInfo.GetCultureInfo("zh-CN");
-    private static readonly string[] TimeFormats = ["H:mm", "HH:mm"];
-    private const string AllDay = "全天";
     private readonly TextBox title;
     private readonly DatePicker date;
-    private readonly ComboBox time;
+    private readonly DeadlineTimeBox time;
     private readonly TextBlock error;
     private readonly TaskDetailsEditor detailsEditor;
     private readonly Func<TodoDraft, string?> save;
@@ -55,20 +52,8 @@ internal sealed class TaskEditor : Border
             SelectedDate = due?.Date.ToDateTime(TimeOnly.MinValue)
         };
         date.AutomationName("截止日期");
-        time = new ComboBox
-        {
-            IsEditable = true,
-            IsEnabled = due.HasValue,
-            IsTextSearchEnabled = false,
-            MinHeight = 30,
-            MaxDropDownHeight = 182,
-            ItemsSource = new[] { AllDay }.Concat(Enumerable.Range(0, 48)
-                .Select(slot => TimeOnly.MinValue.AddMinutes(slot * 30).ToString("HH:mm", CultureInfo.InvariantCulture))
-                .Append("23:59")),
-            Text = due?.Time?.ToString("HH:mm", CultureInfo.InvariantCulture) ?? AllDay
-        };
+        time = new DeadlineTimeBox(due?.Time) { IsEnabled = due.HasValue };
         time.AutomationName("截止时间");
-        time.ToolTip = "默认按天截止。可选择或输入 24 小时制时间。";
 
         var scheduleLabel = new DockPanel { Margin = new Thickness(0, 5, 0, 1) };
         var clear = Ui.Button("清除日期", ClearDeadline);
@@ -99,6 +84,7 @@ internal sealed class TaskEditor : Border
             Margin = new Thickness(0, 6, 0, 0)
         };
         details.AutomationName("任务详情");
+        details.Expanded += (_, _) => Ui.Reveal(detailsEditor);
         fields.Children.Add(details);
 
         error = Ui.Text("", 12, "OverdueBrush");
@@ -184,17 +170,11 @@ internal sealed class TaskEditor : Border
                 date.Focus();
                 return;
             }
-            string timeText = time.Text.Trim();
-            TimeOnly? clock = null;
-            if (timeText.Length > 0 && timeText != AllDay)
+            if (!time.TryRead(out var clock))
             {
-                if (!TimeOnly.TryParseExact(timeText, TimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-                {
-                    ShowError("请选择全天，或输入 24 小时制时间，例如 18:30。");
-                    time.Focus();
-                    return;
-                }
-                clock = exact;
+                ShowError(DeadlineTimeBox.InvalidTime);
+                time.Focus();
+                return;
             }
             due = new TodoDeadline(DateOnly.FromDateTime(day), clock);
         }
@@ -214,7 +194,7 @@ internal sealed class TaskEditor : Border
     {
         date.SelectedDate = null;
         date.Text = "";
-        time.Text = AllDay;
+        time.Reset();
         time.IsEnabled = false;
         invalidDate = false;
         error.Visibility = Visibility.Collapsed;
@@ -233,6 +213,7 @@ internal sealed class CaptureWindow : Window
 
     public CaptureWindow(NoteTheme theme, TodoDraft draft, TodoCatalog catalog, Func<TodoDraft, string?> save)
     {
+        Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 新建待办";
         FontFamily = new System.Windows.Media.FontFamily(theme.Font);
         Icon = Ui.AppIcon();
@@ -254,7 +235,11 @@ internal sealed class CaptureWindow : Window
         }, Close);
         editor.Margin = new Thickness(10);
         Content = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        ContentRendered += (_, _) => editor.FocusTitle();
+        ContentRendered += (_, _) =>
+        {
+            Ui.Reveal(editor);
+            editor.FocusTitle();
+        };
     }
 
     public void FocusEditor()

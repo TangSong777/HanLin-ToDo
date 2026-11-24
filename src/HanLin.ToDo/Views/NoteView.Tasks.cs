@@ -7,6 +7,8 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Markup;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace HanLin.ToDo;
@@ -14,6 +16,10 @@ namespace HanLin.ToDo;
 internal sealed partial class NoteView
 {
     private TextBox quickInput = null!;
+    private DatePicker quickDate = null!;
+    private DeadlineTimeBox quickTime = null!;
+    private Grid quickDeadlineRow = null!;
+    private TextBlock quickDeadlineLabel = null!;
     private TextBox searchInput = null!;
     private DockPanel searchRow = null!;
     private DockPanel undoRow = null!;
@@ -30,7 +36,7 @@ internal sealed partial class NoteView
     public event Action<string>? ListsRequested;
     public event Action<TodoItem, Func<TodoDetails, TodoDetails>>? DetailsRequested;
     public event Action<TodoItem>? DuplicateRequested;
-    public event Action<TodoItem, int>? ReorderRequested;
+    public event Action<IReadOnlyList<TodoItem>>? ReorderRequested;
     public event Action<TodoItem>? DeleteRequested;
     public event Action<string>? RestoreRequested;
     public event Action<IReadOnlyList<TodoItem>, string?>? BatchMoveRequested;
@@ -40,12 +46,12 @@ internal sealed partial class NoteView
     private static readonly (string Key, string Label)[] BuiltInViews =
     [
         (TodoViews.All, "全部"), (TodoViews.Inbox, "收件箱"), (TodoViews.Today, "今天"),
-        (TodoViews.Important, "重要"), (TodoViews.Planned, "计划"), (TodoViews.Overdue, "逾期"), (TodoViews.Completed, "已完成")
+        (TodoViews.Pinned, "置顶"), (TodoViews.Planned, "计划"), (TodoViews.Overdue, "逾期"), (TodoViews.Completed, "已完成")
     ];
 
     private static readonly (TaskSort Mode, string Label)[] SortChoices =
     [
-        (TaskSort.Due, "截止日期"), (TaskSort.Important, "重要程度"), (TaskSort.Title, "任务名称"),
+        (TaskSort.Due, "截止日期"), (TaskSort.Title, "任务名称"),
         (TaskSort.Newest, "最新创建"), (TaskSort.Today, "今天优先"), (TaskSort.Manual, "手动顺序")
     ];
 
@@ -58,20 +64,40 @@ internal sealed partial class NoteView
     {
         var panel = new StackPanel { Margin = new Thickness(12, 6, 12, 2) };
         quickInput = Ui.Input("添加待办");
+        quickInput.MinHeight = 32;
         quickInput.MaxLength = 300;
         var quickRow = new DockPanel();
         var add = Ui.Button("添加", SubmitQuickTask, "plus");
         add.Margin = new Thickness(4, 0, 0, 0);
+        add.VerticalAlignment = VerticalAlignment.Center;
         DockPanel.SetDock(add, Dock.Right);
         quickRow.Children.Add(add);
+        quickDate = new DatePicker
+        {
+            Style = (Style)Application.Current.FindResource("QuickDatePicker"),
+            Language = XmlLanguage.GetLanguage("zh-CN"),
+            FirstDayOfWeek = DayOfWeek.Monday,
+            Tag = "快速选择截止日期",
+            Width = 30, Height = 30,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
+        };
+        quickDate.AutomationName("快速添加截止日期");
+        DockPanel.SetDock(quickDate, Dock.Right);
+        quickRow.Children.Add(quickDate);
         quickRow.Children.Add(Watermark(quickInput, "输入待办，回车添加"));
         panel.Children.Add(quickRow);
-        quickInput.KeyDown += (_, args) =>
+        panel.Children.Add(CreateQuickDeadlineRow());
+        quickInput.KeyDown += ConfirmQuickTask;
+        quickTime.PreviewKeyDown += ConfirmQuickTask;
+        DateTime? dateAtOpen = null;
+        quickDate.CalendarOpened += (_, _) => dateAtOpen = quickDate.SelectedDate;
+        quickDate.SelectedDateChanged += (_, _) => UpdateQuickDeadline();
+        quickDate.CalendarClosed += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
-            if (args.Key != Key.Enter) return;
-            SubmitQuickTask();
-            args.Handled = true;
-        };
+            if (quickDate.SelectedDate != dateAtOpen || quickDate.IsKeyboardFocusWithin)
+                quickInput.Focus();
+        }));
 
         searchInput = Ui.Input("搜索待办");
         searchInput.MaxLength = 300;
@@ -102,6 +128,63 @@ internal sealed partial class NoteView
         undoTimer.Tick += (_, _) => ShowUndo(null);
         PreviewKeyDown += TaskShortcuts;
         return panel;
+    }
+
+    private Grid CreateQuickDeadlineRow()
+    {
+        quickDeadlineRow = new Grid { Margin = new Thickness(0, 4, 0, 0), Visibility = Visibility.Collapsed };
+        quickDeadlineRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        quickDeadlineRow.ColumnDefinitions.Add(new() { Width = new GridLength(75) });
+        quickDeadlineRow.ColumnDefinitions.Add(new() { Width = new GridLength(30) });
+        quickDeadlineLabel = Ui.Text("", 12, "MutedBrush");
+        quickDeadlineLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        quickDeadlineLabel.VerticalAlignment = VerticalAlignment.Center;
+        quickDeadlineLabel.Margin = new Thickness(8, 0, 4, 0);
+        quickDeadlineRow.Children.Add(quickDeadlineLabel);
+        quickTime = new DeadlineTimeBox { FontSize = 12 };
+        quickTime.AutomationName("快速截止时间");
+        Grid.SetColumn(quickTime, 1);
+        quickDeadlineRow.Children.Add(quickTime);
+        var clearDate = Ui.Button("清除快速截止日期", () =>
+        {
+            ClearQuickDeadline();
+            ShowNotice(null);
+            quickInput.Focus();
+        }, "close");
+        Grid.SetColumn(clearDate, 2);
+        quickDeadlineRow.Children.Add(clearDate);
+        return quickDeadlineRow;
+    }
+
+    private void UpdateQuickDeadline()
+    {
+        if (quickDate.SelectedDate is not { } day)
+        {
+            quickDeadlineRow.Visibility = Visibility.Collapsed;
+            quickDate.Background = Brushes.Transparent;
+            return;
+        }
+        quickDeadlineLabel.Text = "截止 · " + day.ToString(day.Year == DateTime.Today.Year ? "M月d日" : "yyyy/M/d",
+            CultureInfo.InvariantCulture);
+        quickDate.SetResourceReference(Control.BackgroundProperty, "TintBrush");
+        bool reveal = quickDeadlineRow.Visibility != Visibility.Visible;
+        quickDeadlineRow.Visibility = Visibility.Visible;
+        if (reveal) Ui.Reveal(quickDeadlineRow);
+    }
+
+    private void ClearQuickDeadline()
+    {
+        quickDate.SelectedDate = null;
+        quickDate.DisplayDate = DateTime.Today;
+        quickTime.Reset();
+    }
+
+    private void ConfirmQuickTask(object sender, KeyEventArgs args)
+    {
+        if (args.Key != Key.Enter || quickDate.IsDropDownOpen || quickTime.IsDropDownOpen)
+            return;
+        SubmitQuickTask();
+        args.Handled = true;
     }
 
     private StackPanel CreateTaskNavigation()
@@ -153,20 +236,36 @@ internal sealed partial class NoteView
             ShowNotice("请在输入栏输入一行任务名称。");
             return;
         }
+        TodoDeadline? due = null;
+        if (quickDate.SelectedDate is { } day)
+        {
+            if (!quickTime.TryRead(out var time))
+            {
+                ShowNotice(DeadlineTimeBox.InvalidTime);
+                quickTime.Focus();
+                return;
+            }
+            due = new TodoDeadline(DateOnly.FromDateTime(day), time);
+        }
         string context = ActiveView;
-        if (AddTask?.Invoke(new TodoDraft(title, null, TodoViews.NewDetails(context, DateTime.Now))) is not null)
+        var now = DateTime.Now;
+        if (AddTask?.Invoke(new TodoDraft(title, due, TodoViews.NewDetails(context, now))) is not null)
             return;
         quickInput.Clear();
+        ClearQuickDeadline();
         if (SearchQuery.Length > 0)
             CloseSearch();
-        if (context is TodoViews.Planned or TodoViews.Overdue or TodoViews.Completed or TodoViews.Trash)
+        if (context is TodoViews.Completed or TodoViews.Trash || context == TodoViews.Planned && due is null ||
+            context == TodoViews.Overdue && due?.IsOverdue(now) != true)
             ViewRequested?.Invoke(TodoViews.All);
         quickInput.Focus();
     }
 
     private void ShowSearch()
     {
+        bool reveal = searchRow.Visibility != Visibility.Visible;
         searchRow.Visibility = Visibility.Visible;
+        if (reveal) Ui.Reveal(searchRow);
         searchInput.Focus();
         searchInput.SelectAll();
     }
@@ -195,7 +294,9 @@ internal sealed partial class NoteView
 
     private void ShowViews()
     {
-        var menu = new ContextMenu { PlacementTarget = viewButton, Placement = PlacementMode.Top };
+        var menu = CreateMenu();
+        menu.PlacementTarget = viewButton;
+        menu.Placement = PlacementMode.Top;
         if (selecting)
         {
             FillBatchMenu(menu);
@@ -209,31 +310,31 @@ internal sealed partial class NoteView
         }, ActiveView == key));
         foreach (var (key, label) in BuiltInViews)
             AddView(menu.Items, key, label);
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuDivider());
         foreach (var group in snapshot.Catalog.Lists.GroupBy(item => item.Group))
         {
             var section = menu.Items;
             if (!string.IsNullOrEmpty(group.Key))
             {
-                var branch = new MenuItem { Header = group.Key };
+                var branch = MenuBranch(group.Key, "folder");
                 menu.Items.Add(branch);
                 section = branch.Items;
             }
             foreach (var item in group)
                 AddView(section, item.Id, item.Name);
         }
-        menu.Items.Add(Menu("管理清单和便笺", () => ListsRequested?.Invoke(ActiveView)));
+        menu.Items.Add(Menu("管理清单和便笺", () => ListsRequested?.Invoke(ActiveView), icon: "folder"));
         if (ActiveView == TodoViews.Today)
         {
-            var suggestions = new MenuItem { Header = "今日建议" };
+            var suggestions = MenuBranch("今日建议", "calendar");
             foreach (var item in snapshot.Items.Where(item => !item.Done && !TodoViews.IsToday(item, DateTime.Now))
-                .OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue).Take(8))
+                .OrderByDescending(item => item.Details.Pinned).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue).Take(8))
                 suggestions.Items.Add(Menu(item.Title, () => DetailsRequested?.Invoke(item,
                     details => details with { MyDay = DateOnly.FromDateTime(DateTime.Now) })));
             suggestions.IsEnabled = suggestions.Items.Count > 0;
             menu.Items.Add(suggestions);
         }
-        var sorting = new MenuItem { Header = "排序" };
+        var sorting = MenuBranch("排序", "dots");
         foreach (var (kind, label) in SortChoices)
             sorting.Items.Add(Menu(label, () => SortRequested?.Invoke(kind), settings.Sort == kind));
         menu.Items.Add(sorting);
@@ -243,7 +344,7 @@ internal sealed partial class NoteView
             menu.Items.Add(Menu("导出当前任务", () => ExportRequested?.Invoke(
                 SearchQuery.Length > 0 ? "搜索结果" : TodoViews.Label(ActiveView, snapshot.Catalog), VisibleTasks())));
         }
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuDivider());
         AddView(menu.Items, TodoViews.Trash, "回收站");
         menu.IsOpen = true;
     }
@@ -251,12 +352,12 @@ internal sealed partial class NoteView
     private void PopulateItemMenu(ContextMenu menu, TodoItem item)
     {
         menu.Items.Clear();
-        menu.Items.Add(Menu("编辑任务", () => BeginEdit(item)));
-        menu.Items.Add(Menu(item.Details.Important ? "取消重要" : "标为重要", () => ToggleImportance(item)));
+        menu.Items.Add(Menu("编辑任务", () => BeginEdit(item), icon: "pencil"));
+        menu.Items.Add(Menu(item.Details.Pinned ? "取消置顶" : "置顶任务", () => TogglePin(item), icon: "pin"));
         var today = DateOnly.FromDateTime(DateTime.Now);
         menu.Items.Add(Menu(item.Details.MyDay == today ? "移出今日计划" : "加入今日计划", () =>
-            DetailsRequested?.Invoke(item, details => details with { MyDay = details.MyDay == today ? null : today })));
-        var move = new MenuItem { Header = "移到清单" };
+            DetailsRequested?.Invoke(item, details => details with { MyDay = details.MyDay == today ? null : today }), icon: "calendar"));
+        var move = MenuBranch("移到清单", "folder");
         move.Items.Add(Menu("收件箱", () => MoveToList(item, null), item.Details.ListId is null));
         foreach (var list in snapshot.Catalog.Lists)
             move.Items.Add(Menu(list.Name, () => MoveToList(item, list.Id), item.Details.ListId == list.Id));
@@ -265,18 +366,20 @@ internal sealed partial class NoteView
         menu.Items.Add(Menu("明天截止", () => ChangeDue(item, new TodoDeadline(DateOnly.FromDateTime(DateTime.Today.AddDays(1))))));
         if (item.Due is not null)
             menu.Items.Add(Menu("清除截止日期", () => ChangeDue(item, null)));
-        menu.Items.Add(Menu("复制任务", () => DuplicateRequested?.Invoke(item)));
-        if (settings.Sort == TaskSort.Manual && SearchQuery.Length == 0)
+        menu.Items.Add(Menu("复制任务", () => DuplicateRequested?.Invoke(item), icon: "copy"));
+        if (CanReorder)
         {
-            menu.Items.Add(Menu("上移", () => ReorderRequested?.Invoke(item, -1)));
-            menu.Items.Add(Menu("下移", () => ReorderRequested?.Invoke(item, 1)));
+            menu.Items.Add(Menu("上移", () => MoveTaskBy(item, -1)));
+            menu.Items.Add(Menu("下移", () => MoveTaskBy(item, 1)));
         }
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Menu("移到回收站", () => DeleteRequested?.Invoke(item)));
+        menu.Items.Add(MenuDivider());
+        var remove = Menu("移到回收站", () => DeleteRequested?.Invoke(item), icon: "trash");
+        remove.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
+        menu.Items.Add(remove);
     }
 
     private void ChangeDue(TodoItem item, TodoDeadline? due) => SaveEdit?.Invoke(item, new TodoDraft(item.Title, due, item.Details));
-    private void ToggleImportance(TodoItem item) => DetailsRequested?.Invoke(item, details => details with { Important = !details.Important });
+    private void TogglePin(TodoItem item) => DetailsRequested?.Invoke(item, details => details with { Pinned = !details.Pinned });
     private void MoveToList(TodoItem item, string? id) => DetailsRequested?.Invoke(item, details => details with { ListId = id });
 
     public void ShowUndo(string? id)
@@ -285,7 +388,10 @@ internal sealed partial class NoteView
         undoId = id;
         undoRow.Visibility = id is null ? Visibility.Collapsed : Visibility.Visible;
         if (id is not null)
+        {
+            Ui.Reveal(undoRow);
             undoTimer.Start();
+        }
     }
 
     private void UndoDelete()
@@ -371,7 +477,7 @@ internal sealed partial class NoteView
         }));
         if (selected.Count > 0)
         {
-            var move = new MenuItem { Header = "移动选中的任务" };
+            var move = MenuBranch("移动选中的任务", "folder");
             move.Items.Add(Menu("收件箱", () => BatchMoveRequested?.Invoke(selected.ToArray(), null)));
             foreach (var list in snapshot.Catalog.Lists)
                 move.Items.Add(Menu(list.Name, () => BatchMoveRequested?.Invoke(selected.ToArray(), list.Id)));
@@ -409,9 +515,30 @@ internal sealed partial class NoteView
         return grid;
     }
 
-    private static MenuItem Menu(string label, Action action, bool check = false)
+    private static ContextMenu CreateMenu()
     {
-        var item = new MenuItem { Header = label, IsCheckable = check, IsChecked = check };
+        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("SoftMenu") };
+        menu.Opened += (_, _) => Ui.Reveal(menu);
+        return menu;
+    }
+
+    private static Separator MenuDivider() => new() { Style = (Style)Application.Current.FindResource("SoftMenuDivider") };
+
+    private static MenuItem MenuBranch(string label, string? icon)
+    {
+        var header = Ui.Text(label);
+        header.TextTrimming = TextTrimming.CharacterEllipsis;
+        var item = new MenuItem { Header = header, Style = (Style)Application.Current.FindResource("SoftMenuItem") };
+        item.AutomationName(label);
+        if (icon is not null) item.Icon = Ui.Glyph(icon);
+        return item;
+    }
+
+    private static MenuItem Menu(string label, Action action, bool check = false, string? icon = null)
+    {
+        var item = MenuBranch(label, icon);
+        item.IsCheckable = check;
+        item.IsChecked = check;
         item.Click += (_, _) => action();
         return item;
     }

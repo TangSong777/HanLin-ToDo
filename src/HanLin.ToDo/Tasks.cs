@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 namespace HanLin.ToDo;
 
 internal enum TaskRepeat { None, Daily, Weekdays, Weekly, Monthly, Yearly }
-internal enum TaskSort { Due, Important, Title, Newest, Manual, Today }
+internal enum TaskSort { Due = 0, Title = 2, Newest = 3, Manual = 4, Today = 5 }
 
 internal readonly record struct TodoDeadline(DateOnly Date, TimeOnly? Time = null)
 {
@@ -50,7 +50,9 @@ internal sealed record TodoDetails
 {
     public string? Id { get; init; }
     public string? ListId { get; init; }
-    public bool Important { get; init; }
+    public bool Pinned { get; init; }
+    [JsonPropertyName("Important")]
+    public bool LegacyImportant { get; init; }
     public DateOnly? MyDay { get; init; }
     public DateTime? Created { get; init; }
     public DateTime? Reminder { get; init; }
@@ -84,7 +86,7 @@ internal static class TodoViews
     public const string All = "all";
     public const string Inbox = "inbox";
     public const string Today = "today";
-    public const string Important = "important";
+    public const string Pinned = "pinned";
     public const string Planned = "planned";
     public const string Overdue = "overdue";
     public const string Completed = "completed";
@@ -96,7 +98,7 @@ internal static class TodoViews
     {
         Inbox => "收件箱",
         Today => "今天",
-        Important => "重要",
+        Pinned => "置顶",
         Planned => "计划",
         Overdue => "逾期",
         Completed => "已完成",
@@ -107,7 +109,7 @@ internal static class TodoViews
     public static TodoDetails NewDetails(string view, DateTime now) => new()
     {
         ListId = ListId(view),
-        Important = view == Important,
+        Pinned = view == Pinned,
         MyDay = view == Today ? DateOnly.FromDateTime(now) : null
     };
 
@@ -117,7 +119,7 @@ internal static class TodoViews
     public static bool Includes(TodoItem item, string view, DateTime now) => view switch
     {
         Today => IsToday(item, now),
-        Important => item.Details.Important,
+        Pinned => item.Details.Pinned,
         Planned => item.Due is not null || item.Details.Reminder is not null,
         Overdue => !item.Done && item.Due is { } due && due.IsOverdue(now),
         Completed => item.Done,
@@ -137,15 +139,18 @@ internal static class TodoViews
             || item.Details.Steps?.Any(step => Has(step.Title)) == true || item.Details.Attachments?.Any(Has) == true;
     }
 
-    public static IEnumerable<TodoItem> Sort(IEnumerable<TodoItem> items, TaskSort order) => order switch
+    public static IEnumerable<TodoItem> Sort(IEnumerable<TodoItem> items, TaskSort order)
     {
-        TaskSort.Title => items.OrderBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase),
-        TaskSort.Newest => items.OrderByDescending(item => item.Details.Created).ThenByDescending(item => item.Offset),
-        TaskSort.Important => items.OrderByDescending(item => item.Details.Important).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
-        TaskSort.Today => items.OrderByDescending(item => IsToday(item, DateTime.Now)).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
-        TaskSort.Manual => items,
-        _ => items.OrderBy(item => item.Due?.SortAt ?? item.Details.Reminder ?? DateTime.MaxValue)
-    };
+        var pinnedFirst = items.OrderByDescending(item => item.Details.Pinned);
+        return order switch
+        {
+            TaskSort.Title => pinnedFirst.ThenBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase),
+            TaskSort.Newest => pinnedFirst.ThenByDescending(item => item.Details.Created).ThenByDescending(item => item.Offset),
+            TaskSort.Today => pinnedFirst.ThenByDescending(item => IsToday(item, DateTime.Now)).ThenBy(item => item.Due?.SortAt ?? DateTime.MaxValue),
+            TaskSort.Manual => pinnedFirst,
+            _ => pinnedFirst.ThenBy(item => item.Due?.SortAt ?? item.Details.Reminder ?? DateTime.MaxValue)
+        };
+    }
 }
 
 internal sealed partial class TaskFile(string path)
@@ -252,19 +257,20 @@ internal sealed partial class TaskFile(string path)
         return Write(snapshot.Text, AppendLine(snapshot.Text, NewLine(item.Title, item.Due, details)));
     }
 
-    public TodoSnapshot MoveOrder(TodoItem expected, int delta)
+    public TodoSnapshot Reorder(IReadOnlyList<TodoItem> order)
     {
         var snapshot = Read();
-        var item = FindCurrent(snapshot, expected);
-        var peers = snapshot.Items.Where(peer => peer.Details.ListId == item.Details.ListId && peer.Done == item.Done).ToArray();
-        int next = Array.IndexOf(peers, item) + delta;
-        if (next < 0 || next >= peers.Length)
-            return snapshot;
-        var neighbor = peers[next];
-        var first = item.Offset < neighbor.Offset ? item : neighbor;
-        var second = item.Offset < neighbor.Offset ? neighbor : item;
-        string text = ReplaceItem(snapshot.Text, second, first.Line);
-        return Write(snapshot.Text, ReplaceItem(text, first, second.Line));
+        var byOffset = snapshot.Items.ToDictionary(item => item.Offset);
+        var rows = order.Select(expected => byOffset.TryGetValue(expected.Offset, out var item) && item.Line == expected.Line
+            ? item : FindCurrent(snapshot, expected)).ToArray();
+        var slots = rows.OrderBy(item => item.Offset).ToArray();
+        if (slots.Select(item => item.Offset).Distinct().Count() != slots.Length)
+            throw new IOException("任务顺序已变化，请重新拖动。");
+        string text = snapshot.Text;
+        for (int index = slots.Length - 1; index >= 0; --index)
+            if (slots[index].Line != rows[index].Line)
+                text = ReplaceItem(text, slots[index], rows[index].Line);
+        return Write(snapshot.Text, text);
     }
 
     public TodoSnapshot MoveToList(IReadOnlyList<TodoItem> selections, string? listId)
@@ -452,7 +458,7 @@ internal sealed partial class TaskFile(string path)
         if (suffix >= 0 && content.TrimEnd().EndsWith(CommentEnd, StringComparison.Ordinal)
             && Deserialize<TodoDetails>(content.TrimEnd()[(suffix + ItemPrefix.Length)..^CommentEnd.Length]) is { } metadata)
         {
-            details = metadata;
+            details = metadata.LegacyImportant ? metadata with { Pinned = true, LegacyImportant = false } : metadata;
             content = content[..suffix];
         }
         string title = content.Trim();
