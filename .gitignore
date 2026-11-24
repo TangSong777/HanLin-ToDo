@@ -1,1 +1,5 @@
 /todo.md
+/settings.json
+bin/
+obj/
+.vs/

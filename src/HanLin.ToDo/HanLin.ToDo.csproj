@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <AssemblyName>HanLin-ToDo</AssemblyName>
+    <RootNamespace>HanLin.ToDo</RootNamespace>
+    <ApplicationIcon>Assets\HanLin-ToDo.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The WPF entry point declares DPI awareness before WinForms creates the tray HWND. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\HanLin-ToDo.ico" />
+  </ItemGroup>
+</Project>

@@ -12,6 +12,10 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 - 便签隐藏任务栏按钮。
 - 勾选/取消勾选即时写回本地 Markdown，重启后恢复。
 - 默认按截止时间排列未完成任务，标出逾期项。
+- 点击铅笔可在便签内修改任务与截止时间。标题区可锁定位置，锁定时仍可勾选和编辑。
+- 登录自启可在设置中开启。程序恢复上次位置、锁定状态、外观和任务。
+- 默认使用暖白底、低饱和珊瑚红和柔和圆角。主色、底色、字体、字号、圆角、行间留白和宽度可调。
+- 任务栏通知区域与 EXE 使用同一款「办」字图标，珊瑚红外框搭配造字工房悦黑常规体。
 
 任务文件是纯 Markdown，格式：
 
@@ -24,13 +28,16 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 
 | 维度 | 状态 |
 | --- | --- |
-| 代码 | 尚未开始，仓库只有文档与发布配置 |
+| 代码 | 首个可运行的 Windows 版已实现，使用 WPF 与 .NET 10 |
 | 仓库 | 公开：https://github.com/TangSong777/HanLin-ToDo |
 | 默认分支 | main |
 | 分支 | main（稳定发布）、snapshot（日常开发） |
 | 规则集 | Stable releases from snapshot，已激活 |
 | Actions | Stable release 工作流已注册，state=active |
-| 本地 | D:\WorkSpace\HanLin-ToDo，当前在 snapshot，工作区干净 |
+| 本地 | D:\WorkSpace\HanLin-ToDo，日常开发在 snapshot |
+| 打包 | 支持 Windows x64 自包含单文件构建，命令见 README |
+| 桌面验证 | 在 Windows 11 24H2 验证普通窗口覆盖、Win+D 后便签可见并能勾选，以及锁定、内联编辑、快捷录入和托盘注册 |
+| 启动验证 | 验证了当前用户 Run 启动项的写入与关闭，按该命令重开可恢复任务、位置、锁定和主题 |
 
 ## 三、分支模型
 
@@ -57,6 +64,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 ## 五、本地环境
 
 - Windows + MSYS Bash / PowerShell 5.1+
+- .NET 10 SDK 与 WPF。打包产物为 Windows x64 自包含 EXE。
 - git 2.56.0.windows.4.niugit
 - gh 2.102.0，登录账号 TangSong777（scopes：repo、workflow、gist、read:org）
 - git 提交身份：TangSong777 / 2797487804@qq.com
@@ -83,15 +91,19 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 
 ## 七、开发约定
 
-- 任务文件 `todo.md` 是运行时数据，已在 `.gitignore` 中排除，不入库。
+- 运行时数据位于 `%LOCALAPPDATA%\HanLin-ToDo`。`todo.md` 保存任务，`settings.json` 保存位置、锁定和外观。
+- `DesktopSurface` 使用桌面拥有的工具窗口和窗口层级管理便签。调试时发现 Windows 11 24H2 的跨进程桌面子窗口存在画面合成问题，首版采用可独立合成的桌面工具窗口。
+- 图标生成器是 `tools/New-TaskbarIcon.py`。应用构建使用已生成的 ICO。字体仅用于本地生成。
 - 提交信息用英文祈使句（现有提交：`Initialize stable release rules`、`Record project goals and development workflow`）。
-- main 只放发布配置，项目文件放 snapshot。
+- snapshot 上日常开发，main 在首发 PR 合并后包含稳定版。
 - 不直接推 main；规则集会拒绝。
 
 ## 八、待办
 
-- [ ] 实现第一版：全局快捷键、桌面便签、Markdown 读写、排序与逾期标记
-- [ ] 补充构建与运行说明（技术栈未定）
+- [x] 实现全局快捷键、桌面便签、Markdown 读写、排序与逾期标记
+- [x] 实现便签内编辑、位置锁定、可选登录自启、恢复与主题设置
+- [x] 制作并接入珊瑚红细框与悦黑「办」字图标
+- [x] 补充构建、运行和打包说明
 - [ ] 首次 snapshot → main 的 PR 演练，验证规则集与检查确实生效
 - [ ] 视需要补充 LICENSE、CONTRIBUTING
 
@@ -109,3 +121,4 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 | 日期 | 变更 | 说明 |
 | --- | --- | --- |
 | 2026-11-24 | 创建交接文档 | 仓库初始化完成，可见性改为公开 |
+| 2026-11-24 | 实现并验证 Windows 首版 | 补齐桌面便签的日常功能、柔和圆角主题与通知区域图标 |
