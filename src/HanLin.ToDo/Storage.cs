@@ -127,7 +127,7 @@ internal sealed record NotePreferences
 {
     public int? Left { get; init; }
     public int? Top { get; init; }
-    public bool Locked { get; init; } = true;
+    public bool Locked { get; init; }
     public bool ShowCompleted { get; init; }
     public NoteTheme Theme { get; init; } = new();
 }

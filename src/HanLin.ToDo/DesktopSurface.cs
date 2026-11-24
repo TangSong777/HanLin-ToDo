@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 using Point = System.Drawing.Point;
@@ -19,6 +20,7 @@ internal sealed class DesktopSurface : IDisposable
     private Point dragStart;
     private Point originalPosition;
     private bool dragging;
+    private bool movedPastThreshold;
     private bool disposed;
 
     public DesktopSurface(NoteView view, NotePreferences preferences, Action<Point> positionSaved)
@@ -28,18 +30,30 @@ internal sealed class DesktopSurface : IDisposable
         if (preferences.Left is int left && preferences.Top is int top)
             position = new Point(left, top);
 
-        view.DragArea.MouseLeftButtonDown += BeginDrag;
-        view.DragArea.MouseMove += ContinueDrag;
-        view.DragArea.MouseLeftButtonUp += (_, _) => EndDrag();
-        view.DragArea.LostMouseCapture += (_, _) => EndDrag();
+        view.PreviewMouseLeftButtonDown += BeginDrag;
+        view.PreviewMouseMove += ContinueDrag;
+        view.PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            if (!dragging)
+                return;
+            MoveFromCursor();
+            EndDrag();
+        };
+        view.LostMouseCapture += (_, _) => EndDrag();
         view.SizeChanged += (_, _) => view.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-            new Action(() => PositionWindow(position)));
+            new Action(() =>
+            {
+                if (!dragging)
+                    PositionWindow(position);
+            }));
     }
 
     public void Refresh(bool visible)
     {
         if (disposed)
             return;
+        if (!visible)
+            EndDrag();
 
         IntPtr host = Native.DesktopHost();
         if (source is { IsDisposed: false } && (parent != host || !Native.IsWindow(source.Handle)))
@@ -71,9 +85,16 @@ internal sealed class DesktopSurface : IDisposable
         if (!dragging)
             return;
         dragging = false;
-        view.DragArea.ReleaseMouseCapture();
-        if (position is { } current)
-            positionSaved(current);
+        if (view.IsMouseCaptured)
+            view.ReleaseMouseCapture();
+
+        if (source is not { IsDisposed: false } || !Native.GetWindowRect(source.Handle, out var window))
+            return;
+        var current = new Point(window.Left, window.Top);
+        if (current == originalPosition)
+            return;
+        position = current;
+        positionSaved(current);
     }
 
     private void BuildHost(IntPtr host)
@@ -94,13 +115,14 @@ internal sealed class DesktopSurface : IDisposable
         PositionWindow(position);
     }
 
-    private void PositionWindow(Point? target)
+    private void PositionWindow(Point? target, Point? pointer = null)
     {
         if (disposed || source is null || source.IsDisposed || !Native.GetWindowRect(source.Handle, out var rect))
             return;
 
-        var area = (target is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen)?.WorkingArea
-            ?? Forms.SystemInformation.WorkingArea;
+        var monitorPoint = pointer ?? target;
+        var screen = monitorPoint is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen;
+        var area = screen?.WorkingArea ?? Forms.SystemInformation.WorkingArea;
         int width = rect.Right - rect.Left;
         int height = rect.Bottom - rect.Top;
         var point = target ?? new Point(area.Right - width - 18, area.Top + 20);
@@ -127,24 +149,46 @@ internal sealed class DesktopSurface : IDisposable
 
     private void BeginDrag(object sender, MouseButtonEventArgs args)
     {
-        if (view.IsLocked || source is null || source.IsDisposed
+        var target = view.InputHitTest(args.GetPosition(view));
+        if (!view.CanDragFrom(target) || source is null || source.IsDisposed
             || !Native.GetCursorPos(out var cursor) || !Native.GetWindowRect(source.Handle, out var window))
             return;
 
         originalPosition = new Point(window.Left, window.Top);
         dragStart = new Point(cursor.X, cursor.Y);
-        dragging = view.DragArea.CaptureMouse();
+        movedPastThreshold = false;
+        dragging = view.CaptureMouse();
         args.Handled = dragging;
     }
 
     private void ContinueDrag(object sender, MouseEventArgs args)
     {
-        if (!dragging || view.IsLocked || !Native.GetCursorPos(out var cursor))
+        if (!dragging)
             return;
-        var target = new Point(originalPosition.X + cursor.X - dragStart.X, originalPosition.Y + cursor.Y - dragStart.Y);
-        PositionWindow(target);
-        if (source is { IsDisposed: false } && Native.GetWindowRect(source.Handle, out var window))
-            position = new Point(window.Left, window.Top);
+        if (args.LeftButton != MouseButtonState.Pressed)
+        {
+            EndDrag();
+            return;
+        }
+        MoveFromCursor();
+    }
+
+    private void MoveFromCursor()
+    {
+        if (!Native.GetCursorPos(out var cursor))
+            return;
+
+        int dx = cursor.X - dragStart.X;
+        int dy = cursor.Y - dragStart.Y;
+        if (!movedPastThreshold)
+        {
+            var dpi = VisualTreeHelper.GetDpi(view);
+            movedPastThreshold = Math.Abs(dx) >= SystemParameters.MinimumHorizontalDragDistance * dpi.DpiScaleX
+                || Math.Abs(dy) >= SystemParameters.MinimumVerticalDragDistance * dpi.DpiScaleY;
+            if (!movedPastThreshold)
+                return;
+        }
+        PositionWindow(new Point(originalPosition.X + dx, originalPosition.Y + dy), new Point(cursor.X, cursor.Y));
     }
 
     private void ResetHost()

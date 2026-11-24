@@ -84,6 +84,7 @@ internal static class Ui
             "unlock" => "M 4,6 V 3.7 A 3,3 0 0 1 9.7,2.6 M 2.5,6 H 11.5 V 12.5 H 2.5 Z",
             "settings" => "M 1,3.5 H 4 M 7,3.5 H 13 M 4,2 H 7 V 5 H 4 Z M 1,10.5 H 7 M 10,10.5 H 13 M 7,9 H 10 V 12 H 7 Z",
             "pencil" => "M 2,9.4 L 9.7,1.7 L 12.3,4.3 L 4.5,12 L 1.4,12.6 Z M 8.1,3.3 L 10.7,5.9",
+            "grip" => "M 5,3 h 0.25 M 9,3 h 0.25 M 5,7 h 0.25 M 9,7 h 0.25 M 5,11 h 0.25 M 9,11 h 0.25",
             _ => throw new ArgumentOutOfRangeException(nameof(icon))
         };
         var path = new System.Windows.Shapes.Path

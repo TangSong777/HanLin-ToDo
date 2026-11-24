@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -15,8 +16,10 @@ namespace HanLin.ToDo;
 internal sealed class NoteView : Border
 {
     private readonly Border card;
-    private readonly Border dragArea;
     private readonly Button lockButton;
+    private readonly Border lockGlyph;
+    private readonly TextBlock lockText;
+    private readonly FrameworkElement dragGrip;
     private readonly Button completedButton;
     private readonly StackPanel pending = new();
     private readonly StackPanel completed = new();
@@ -33,9 +36,6 @@ internal sealed class NoteView : Border
     public event Action? CompletedRequested;
     public event Action<TodoItem, bool>? DoneChanged;
     public Func<TodoItem, string, DateTime?, string?>? SaveEdit { get; set; }
-
-    public FrameworkElement DragArea => dragArea;
-    public bool IsLocked => settings.Locked;
 
     public NoteView()
     {
@@ -58,7 +58,16 @@ internal sealed class NoteView : Border
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(actions, Dock.Right);
         actions.Children.Add(Ui.Button("新建待办", () => NewRequested?.Invoke(), "plus"));
-        lockButton = Ui.Button("解锁位置", () => LockRequested?.Invoke(), "lock");
+        lockButton = Ui.Button("锁定位置", () => LockRequested?.Invoke());
+        lockButton.Height = 30;
+        lockButton.Padding = new Thickness(6, 3, 6, 3);
+        lockGlyph = new Border { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+        lockText = Ui.Text("锁定", 12);
+        lockText.VerticalAlignment = VerticalAlignment.Center;
+        var lockContent = new StackPanel { Orientation = Orientation.Horizontal };
+        lockContent.Children.Add(lockGlyph);
+        lockContent.Children.Add(lockText);
+        lockButton.Content = lockContent;
         actions.Children.Add(lockButton);
         actions.Children.Add(Ui.Button("便签设置", () => SettingsRequested?.Invoke(), "settings"));
         header.Children.Add(actions);
@@ -66,8 +75,13 @@ internal sealed class NoteView : Border
         var title = Ui.Text("待办");
         title.FontWeight = FontWeights.SemiBold;
         title.VerticalAlignment = VerticalAlignment.Center;
-        dragArea = new Border { Background = Brushes.Transparent, Child = title };
-        header.Children.Add(dragArea);
+        var caption = new StackPanel { Orientation = Orientation.Horizontal };
+        dragGrip = Ui.Glyph("grip");
+        dragGrip.VerticalAlignment = VerticalAlignment.Center;
+        dragGrip.Margin = new Thickness(0, 0, 5, 0);
+        caption.Children.Add(dragGrip);
+        caption.Children.Add(title);
+        header.Children.Add(caption);
         layout.Children.Add(header);
         Title = title;
 
@@ -93,6 +107,14 @@ internal sealed class NoteView : Border
         notice.TextWrapping = TextWrapping.Wrap;
         notice.Visibility = Visibility.Collapsed;
         layout.Children.Add(notice);
+        QueryCursor += (_, args) =>
+        {
+            if (CanDragFrom(args.OriginalSource))
+            {
+                args.Cursor = Cursors.SizeAll;
+                args.Handled = true;
+            }
+        };
     }
 
     private TextBlock Title { get; }
@@ -106,16 +128,39 @@ internal sealed class NoteView : Border
         TextElement.SetFontFamily(this, new FontFamily(theme.Font));
         TextElement.SetFontSize(this, theme.Size);
         Title.FontSize = theme.Size + 2;
-        dragArea.Cursor = settings.Locked ? Cursors.Arrow : Cursors.SizeAll;
+        dragGrip.Visibility = settings.Locked ? Visibility.Hidden : Visibility.Visible;
         string label = settings.Locked ? "位置已锁定，点击解锁" : "锁定位置";
-        lockButton.ToolTip = label;
+        lockButton.ToolTip = settings.Locked ? "点击解锁后可拖动便签。" : "点击固定便签的位置。";
         AutomationProperties.SetName(lockButton, label);
-        lockButton.Content = Ui.Glyph(settings.Locked ? "lock" : "unlock");
+        lockGlyph.Child = Ui.Glyph(settings.Locked ? "lock" : "unlock");
+        lockText.Text = settings.Locked ? "解锁" : "锁定";
         if (settings.Locked)
             lockButton.SetResourceReference(Control.BackgroundProperty, "TintBrush");
         else
             lockButton.Background = Brushes.Transparent;
         Render();
+    }
+
+    public bool CanDragFrom(object? origin)
+    {
+        if (settings.Locked)
+            return false;
+
+        var element = origin as DependencyObject;
+        while (element is not null)
+        {
+            if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or TaskEditor)
+                return false;
+            if (element == card)
+                return true;
+            element = element switch
+            {
+                Visual visual => VisualTreeHelper.GetParent(visual),
+                FrameworkContentElement content => content.Parent,
+                _ => null
+            };
+        }
+        return false;
     }
 
     public void UpdateTasks(TodoSnapshot next)
