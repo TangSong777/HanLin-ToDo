@@ -75,9 +75,9 @@ internal sealed class SettingsWindow : Window
         surface = ColorField("底色", theme.Surface);
         var typefaces = TwoColumns();
         typefaces.Margin = new Thickness(0, 7, 0, 0);
-        font = AddFont(typefaces, "正文字体", theme.Font == "SimSun" ? 1 : 0, 0, "微软雅黑", "宋体");
-        titleFont = AddFont(typefaces, "标题字体", theme.TitleFont == NoteTitleFont.Body ? 1 : 0, 2,
-            Ui.HasYueHei ? "悦黑体" : "悦黑体（本机未安装）", "跟随正文");
+        string yueHei = Ui.HasYueHei ? "悦黑体" : "悦黑体（本机未安装）";
+        font = AddFont(typefaces, "正文字体", FontIndex(theme.Font), 0, "微软雅黑", "宋体", yueHei);
+        titleFont = AddFont(typefaces, "标题字体", TitleIndex(theme.TitleFont), 2, "微软雅黑", "宋体", yueHei);
         fields.Children.Add(typefaces);
         size = Scale("正文字号", theme.Size, 13, 22);
         radius = Scale("圆角", theme.Radius, 0, 24);
@@ -117,8 +117,18 @@ internal sealed class SettingsWindow : Window
             {
                 Accent = accent.Text.Trim(),
                 Surface = surface.Text.Trim(),
-                Font = font.SelectedIndex == 1 ? "SimSun" : "Microsoft YaHei UI",
-                TitleFont = titleFont.SelectedIndex == 1 ? NoteTitleFont.Body : NoteTitleFont.YueHei,
+                Font = font.SelectedIndex switch
+                {
+                    1 => NoteFonts.SimSun,
+                    2 => NoteFonts.YueHei,
+                    _ => NoteFonts.YaHei
+                },
+                TitleFont = titleFont.SelectedIndex switch
+                {
+                    1 => NoteTitleFont.SimSun,
+                    2 => NoteTitleFont.YueHei,
+                    _ => NoteTitleFont.YaHei
+                },
                 Size = (int)size.Value,
                 Radius = (int)radius.Value,
                 Padding = (int)padding.Value,
@@ -229,6 +239,20 @@ internal sealed class SettingsWindow : Window
         group.Children.Add(stack);
         return input;
     }
+
+    private static int FontIndex(string font) => font switch
+    {
+        NoteFonts.SimSun => 1,
+        NoteFonts.YueHei => 2,
+        _ => 0
+    };
+
+    private static int TitleIndex(NoteTitleFont font) => font switch
+    {
+        NoteTitleFont.SimSun => 1,
+        NoteTitleFont.YueHei => 2,
+        _ => 0
+    };
 
     private static string DimensionText(int value) => value.ToString(CultureInfo.InvariantCulture);
 

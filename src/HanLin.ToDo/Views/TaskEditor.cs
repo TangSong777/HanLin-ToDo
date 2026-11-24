@@ -331,7 +331,7 @@ internal sealed class CaptureWindow : Window
     {
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 新建待办";
-        FontFamily = new FontFamily(theme.Font);
+        FontFamily = Ui.Resolve(theme.Font);
         Icon = Ui.AppIcon();
         Width = 402;
         SizeToContent = SizeToContent.Height;

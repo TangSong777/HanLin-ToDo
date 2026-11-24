@@ -199,7 +199,7 @@ internal sealed partial class NoteView : Border
             titleBand.CornerRadius = new CornerRadius(innerRadius, innerRadius, 0, 0);
         }
         if (!initialized || theme.Font != previous.Theme.Font)
-            TextElement.SetFontFamily(this, new FontFamily(theme.Font));
+            TextElement.SetFontFamily(this, Ui.Resolve(theme.Font));
         if (!initialized || theme.Size != previous.Theme.Size)
         {
             TextElement.SetFontSize(this, theme.Size);

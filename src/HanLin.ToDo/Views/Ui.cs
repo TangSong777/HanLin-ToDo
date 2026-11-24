@@ -15,6 +15,9 @@ internal static class Ui
         family.Source is "MF YueHei (Noncommercial)" or "造字工房悦黑（非商用）"));
 
     public static bool HasYueHei => YueHei.Value is not null;
+
+    public static FontFamily Resolve(string font) =>
+        font == NoteFonts.YueHei ? YueHei.Value ?? new FontFamily(NoteFonts.YaHei) : new FontFamily(font);
     private static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
 
     public static void SetTheme(NoteTheme theme)
@@ -24,9 +27,15 @@ internal static class Ui
         Color ink = ContrastInk(surface);
         bool pale = Luminance(surface) > 0.65;
         var resources = Application.Current.Resources;
-        var titleFont = theme.TitleFont == NoteTitleFont.YueHei ? YueHei.Value : null;
-        resources["TitleFontFamily"] = titleFont ?? new FontFamily(theme.Font);
-        resources["TitleFontWeight"] = titleFont is null ? FontWeights.SemiBold : FontWeights.Normal;
+        var titleFont = theme.TitleFont switch
+        {
+            NoteTitleFont.SimSun => new FontFamily(NoteFonts.SimSun),
+            NoteTitleFont.YaHei => new FontFamily(NoteFonts.YaHei),
+            _ => YueHei.Value
+        };
+        resources["TitleFontFamily"] = titleFont ?? Resolve(theme.Font);
+        resources["TitleFontWeight"] = theme.TitleFont == NoteTitleFont.YueHei && titleFont is not null
+            ? FontWeights.Normal : FontWeights.SemiBold;
         resources["SurfaceBrush"] = Brush(surface);
         resources["HeaderBrush"] = new LinearGradientBrush(
             [new(Mix(surface, accent, 0.17), 0), new(surface, 0.33), new(surface, 1)],

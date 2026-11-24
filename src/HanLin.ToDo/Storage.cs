@@ -7,7 +7,28 @@ using System.Text.Json;
 
 namespace HanLin.ToDo;
 
-internal enum NoteTitleFont { YueHei, Body }
+internal enum NoteTitleFont { YueHei, Body, YaHei, SimSun }
+
+internal static class NoteFonts
+{
+    public const string YaHei = "Microsoft YaHei UI";
+    public const string SimSun = "SimSun";
+    public const string YueHei = "YueHei";
+
+    public static string Normalize(string? value) => value switch
+    {
+        SimSun => SimSun,
+        YueHei => YueHei,
+        _ => YaHei
+    };
+
+    public static NoteTitleFont TitleFrom(string font) => font switch
+    {
+        SimSun => NoteTitleFont.SimSun,
+        YueHei => NoteTitleFont.YueHei,
+        _ => NoteTitleFont.YaHei
+    };
+}
 
 internal sealed record NoteTheme
 {
@@ -21,7 +42,7 @@ internal sealed record NoteTheme
 
     public string Accent { get; init; } = "#E48887";
     public string Surface { get; init; } = "#FFFCF9";
-    public string Font { get; init; } = "Microsoft YaHei UI";
+    public string Font { get; init; } = NoteFonts.YaHei;
     public NoteTitleFont TitleFont { get; init; } = NoteTitleFont.YueHei;
     public int Size { get; init; } = DefaultTextSize;
     public int Radius { get; init; } = 8;
@@ -35,12 +56,19 @@ internal sealed record NoteTheme
 
     public NoteTheme Normalize()
     {
+        string font = NoteFonts.Normalize(Font);
         var normalized = this with
         {
             Accent = IsColor(Accent) ? Accent : "#E48887",
             Surface = IsColor(Surface) ? Surface : "#FFFCF9",
-            Font = Font is "SimSun" ? Font : "Microsoft YaHei UI",
-            TitleFont = Enum.IsDefined(TitleFont) ? TitleFont : NoteTitleFont.YueHei,
+            Font = font,
+            TitleFont = TitleFont switch
+            {
+                NoteTitleFont.Body => NoteFonts.TitleFrom(font),
+                NoteTitleFont.YaHei => NoteTitleFont.YaHei,
+                NoteTitleFont.SimSun => NoteTitleFont.SimSun,
+                _ => NoteTitleFont.YueHei
+            },
             Size = Math.Clamp(Size, 13, 22),
             Radius = Math.Clamp(Radius, 0, 24),
             Padding = Math.Clamp(Padding, 2, 14),
