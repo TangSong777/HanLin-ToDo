@@ -118,7 +118,23 @@ internal static class Ui
 
     public static FrameworkElement Glyph(string icon)
     {
-        string data = icon switch
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = GlyphGeometry(icon),
+            StrokeThickness = icon == "dots" ? 2.2 : 1.25,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Stretch = Stretch.Uniform,
+            Width = 14,
+            Height = 14
+        };
+        path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "MutedBrush");
+        return path;
+    }
+
+    public static Geometry GlyphGeometry(string icon) =>
+        Geometry.Parse(icon switch
         {
             "plus" => "M 2,7 H 12 M 7,2 V 12",
             "lock" => "M 4,6 V 4 A 3,3 0 0 1 10,4 V 6 M 2.5,6 H 11.5 V 12.5 H 2.5 Z",
@@ -135,23 +151,14 @@ internal static class Ui
             "folder" => "M 1.6,4.1 H 5.4 L 6.6,5.6 H 12.4 V 11.3 H 1.6 Z",
             "copy" => "M 4.8,4.7 H 11.8 V 12 H 4.8 Z M 9.5,2.3 H 2.2 V 9.7",
             "trash" => "M 2.1,4.3 H 11.9 M 4.8,4.3 V 2.5 H 9.2 V 4.3 M 3.4,4.3 L 4.2,11.8 H 9.8 L 10.6,4.3 M 6.1,6.5 V 9.5 M 7.9,6.5 V 9.5",
+            "list" => "M 3,2.2 H 11 V 11.8 H 3 Z M 5,5 H 5.2 M 7,5 H 9 M 5,8.5 H 5.2 M 7,8.5 H 9",
+            "eye" => "M 1.3,7 C 4.2,2.2 9.8,2.2 12.7,7 C 9.8,11.8 4.2,11.8 1.3,7 Z M 8.5,7 A 1.5,1.5 0 0 1 5.5,7 A 1.5,1.5 0 0 1 8.5,7 Z",
+            "eye-off" => "M 1.3,7 C 2,5.8 3,4.8 4.1,4.3 M 6.2,3.5 C 8.8,3.2 11.1,4.5 12.7,7 C 12,8.2 11,9.2 9.9,9.7 M 7.8,10.5 C 5.2,10.8 2.9,9.5 1.3,7 M 2,2 L 12,12",
+            "file" => "M 3,1.4 H 8.2 L 11,4.2 V 12.6 H 3 Z M 8.2,1.4 V 4.2 H 11 M 5.2,7 H 8.8 M 5.2,9.5 H 8.8",
+            "exit" => "M 6,2 H 2.5 V 12 H 6 M 5,7 H 12 M 9.5,4.5 L 12,7 L 9.5,9.5",
             "chevron" => "M 3,5 L 7,9 L 11,5",
             _ => throw new ArgumentOutOfRangeException(nameof(icon))
-        };
-        var path = new System.Windows.Shapes.Path
-        {
-            Data = Geometry.Parse(data),
-            StrokeThickness = icon == "dots" ? 2.2 : 1.25,
-            StrokeLineJoin = PenLineJoin.Round,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round,
-            Stretch = Stretch.Uniform,
-            Width = 14,
-            Height = 14
-        };
-        path.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "MutedBrush");
-        return path;
-    }
+        });
 
     public static TextBox Input(string label, string text = "")
     {

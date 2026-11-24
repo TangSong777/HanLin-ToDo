@@ -37,7 +37,7 @@ public partial class App : Application
     private SettingsWindow? settingsWindow;
     private ListsWindow? listsWindow;
     private Forms.NotifyIcon? tray;
-    private Forms.ContextMenuStrip? trayMenu;
+    private TrayMenu? trayMenu;
     private Drawing.Icon? trayIcon;
     private Forms.ToolStripMenuItem? visibleMenu;
     private HwndSource? hotkey;
@@ -190,14 +190,14 @@ public partial class App : Application
         using var stream = GetResourceStream(new Uri("pack://application:,,,/Assets/HanLin-ToDo.ico")).Stream;
         var size = Forms.SystemInformation.SmallIconSize;
         trayIcon = new Drawing.Icon(stream, size.Width, size.Height);
-        trayMenu = new Forms.ContextMenuStrip();
-        trayMenu.Items.Add("新建待办     Ctrl+Alt+T", null, (_, _) => ShowCapture());
-        trayMenu.Items.Add("管理清单和便笺", null, (_, _) => ShowLists(note.ActiveView));
-        visibleMenu = (Forms.ToolStripMenuItem)trayMenu.Items.Add("隐藏便签", null, (_, _) => SetNoteVisible(!noteVisible));
-        trayMenu.Items.Add("便签设置", null, (_, _) => ShowSettings());
-        trayMenu.Items.Add("打开任务文件", null, (_, _) => OpenTaskFile());
+        trayMenu = new TrayMenu();
+        trayMenu.AddAction("新建待办", "plus", ShowCapture, "Ctrl+Alt+T");
+        trayMenu.AddAction("管理清单和便笺", "list", () => ShowLists(note.ActiveView));
+        visibleMenu = trayMenu.AddAction("隐藏便签", "eye-off", () => SetNoteVisible(!noteVisible));
+        trayMenu.AddAction("便签设置", "settings", ShowSettings);
+        trayMenu.AddAction("打开任务文件", "file", OpenTaskFile);
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
-        trayMenu.Items.Add("退出 HanLin-ToDo", null, (_, _) => Shutdown());
+        trayMenu.AddAction("退出 HanLin-ToDo", "exit", Shutdown);
         tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "HanLin-ToDo · Ctrl+Alt+T", ContextMenuStrip = trayMenu, Visible = true };
         tray.MouseClick += (_, args) =>
         {
@@ -536,7 +536,10 @@ public partial class App : Application
     {
         noteVisible = visible;
         if (visibleMenu is not null)
+        {
+            visibleMenu.Tag = visible ? "eye-off" : "eye";
             visibleMenu.Text = visible ? "隐藏便签" : "显示便签";
+        }
         RefreshDesktop();
     }
 
