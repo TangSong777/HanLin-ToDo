@@ -158,6 +158,13 @@ internal sealed partial class NoteView : Border
         footerBand.SetResourceReference(BorderBrushProperty, "LineBrush");
         Grid.SetRow(footerBand, 3);
         layout.Children.Add(footerBand);
+
+        undoToast = CreateUndoToast();
+        Grid.SetRowSpan(undoToast, layout.RowDefinitions.Count);
+        layout.Children.Add(undoToast);
+        footerBand.SizeChanged += (_, args) => undoToast.Margin = new Thickness(12, 0, 12, args.NewSize.Height + 6);
+        undoTimer.Tick += (_, _) => ShowUndo(null);
+
         QueryCursor += (_, args) =>
         {
             if (!TryGetWindowDrag(args.OriginalSource, Mouse.GetPosition(this), out var edges))

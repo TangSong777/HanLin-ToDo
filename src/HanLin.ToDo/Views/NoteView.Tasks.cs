@@ -22,10 +22,10 @@ internal sealed partial class NoteView
     private TextBlock quickDeadlineLabel = null!;
     private TextBox searchInput = null!;
     private DockPanel searchRow = null!;
-    private DockPanel undoRow = null!;
+    private readonly Border undoToast;
     private Button viewButton = null!;
     private TextBlock viewLabel = null!;
-    private readonly DispatcherTimer undoTimer = new() { Interval = TimeSpan.FromSeconds(12) };
+    private readonly DispatcherTimer undoTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private string? undoId;
     private bool selecting;
     private readonly HashSet<TodoItem> selected = [];
@@ -131,16 +131,6 @@ internal sealed partial class NoteView
             args.Handled = true;
         };
 
-        undoRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0), Visibility = Visibility.Collapsed };
-        var undo = Ui.Button("撤销删除", UndoDelete);
-        undo.Padding = new Thickness(4, 0, 4, 0);
-        DockPanel.SetDock(undo, Dock.Right);
-        undoRow.Children.Add(undo);
-        var deleted = Ui.Text("任务已移入回收站", 12, "MutedBrush");
-        deleted.VerticalAlignment = VerticalAlignment.Center;
-        undoRow.Children.Add(deleted);
-        panel.Children.Add(undoRow);
-        undoTimer.Tick += (_, _) => ShowUndo(null);
         PreviewKeyDown += TaskShortcuts;
         return panel;
     }
@@ -393,11 +383,43 @@ internal sealed partial class NoteView
     private void TogglePin(TodoItem item) => DetailsRequested?.Invoke(item, details => details with { Pinned = !details.Pinned });
     private void MoveToList(TodoItem item, string? id) => DetailsRequested?.Invoke(item, details => details with { ListId = id });
 
+    private Border CreateUndoToast()
+    {
+        var message = Ui.Text("已移入回收站", 11, "InkBrush");
+        message.VerticalAlignment = VerticalAlignment.Center;
+        var undo = Ui.Button("撤销", UndoDelete);
+        undo.AutomationName("撤销删除");
+        undo.FontSize = 11;
+        undo.FontWeight = FontWeights.SemiBold;
+        undo.MinHeight = 22;
+        undo.Margin = new Thickness(4, 0, 0, 0);
+        undo.Padding = new Thickness(6, 1, 6, 1);
+        undo.Cursor = Cursors.Hand;
+        undo.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
+
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(message);
+        content.Children.Add(undo);
+        var toast = new Border
+        {
+            Child = content,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(8, 1, 3, 1),
+            BorderThickness = new Thickness(1),
+            Visibility = Visibility.Collapsed
+        };
+        toast.SetResourceReference(BackgroundProperty, "TintBrush");
+        toast.SetResourceReference(BorderBrushProperty, "AccentBrush");
+        return toast;
+    }
+
     public void ShowUndo(string? id)
     {
         undoTimer.Stop();
         undoId = id;
-        undoRow.Visibility = id is null ? Visibility.Collapsed : Visibility.Visible;
+        undoToast.Visibility = id is null ? Visibility.Collapsed : Visibility.Visible;
         if (id is not null)
             undoTimer.Start();
     }
