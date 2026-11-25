@@ -120,7 +120,6 @@ public partial class App : Application
                 ReloadTasks();
                 DeliverReminders();
                 note.RefreshTime();
-                RefreshDesktop();
             }, Dispatcher);
 
             launchWait = ThreadPool.RegisterWaitForSingleObject(launchSignal,
@@ -180,6 +179,7 @@ public partial class App : Application
 
     private void RegisterHotkey()
     {
+        int taskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
         hotkey = new HwndSource(new HwndSourceParameters("HanLin-ToDo Hotkey", 0, 0)
         {
             WindowStyle = Native.Popup,
@@ -189,6 +189,11 @@ public partial class App : Application
                 {
                     ShowCapture();
                     handled = true;
+                }
+                else if (taskbarCreated != 0 && message == taskbarCreated)
+                {
+                    // Reconnect a visible note when Explorer recreates the desktop and taskbar.
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshDesktop));
                 }
                 return IntPtr.Zero;
             }
@@ -591,7 +596,7 @@ public partial class App : Application
     {
         try
         {
-            desktop?.Refresh(noteVisible);
+            desktop?.SetVisible(noteVisible);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ExternalException)
         {
