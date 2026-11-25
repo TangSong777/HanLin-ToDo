@@ -25,6 +25,9 @@ internal sealed class DesktopSurface : IDisposable
     private bool dragging;
     private bool movedPastThreshold;
     private bool allowHide;
+    private IntPtr reorderHook;
+    private Native.WinEventDelegate? reorderCallback;
+    private DateTime lastReorderCheck;
     private bool disposed;
 
     public DesktopSurface(NoteView view, NotePreferences preferences, Action<NotePreferences> savePlacement)
@@ -161,6 +164,9 @@ internal sealed class DesktopSurface : IDisposable
                 PositionWindow(position);
         }));
         source.RootVisual = view;
+        reorderCallback = OnWindowReorder;
+        reorderHook = Native.SetWinEventHook(Native.EventObjectReorder, Native.EventObjectReorder,
+            IntPtr.Zero, reorderCallback, 0, 0, Native.WinEventOutOfContext);
     }
 
     private static void PlaceOnDesktop(IntPtr window)
@@ -257,6 +263,36 @@ internal sealed class DesktopSurface : IDisposable
         return IntPtr.Zero;
     }
 
+    private void OnWindowReorder(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
+    {
+        if (disposed || source is not { IsDisposed: false })
+            return;
+        var now = DateTime.UtcNow;
+        if ((now - lastReorderCheck).TotalMilliseconds < 40)
+            return;
+        lastReorderCheck = now;
+        view.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (!disposed && source is { IsDisposed: false } active && !IsAboveDesktop(active.Handle))
+                PlaceOnDesktop(active.Handle);
+        }));
+    }
+
+    private static bool IsAboveDesktop(IntPtr window)
+    {
+        IntPtr desktop = Native.DesktopHost();
+        if (desktop == IntPtr.Zero)
+            return true;
+        IntPtr current = Native.GetWindow(desktop, Native.PreviousWindow);
+        for (int i = 0; i < 200 && current != IntPtr.Zero; i++)
+        {
+            if (current == window)
+                return true;
+            current = Native.GetWindow(current, Native.PreviousWindow);
+        }
+        return false;
+    }
+
     private void BeginDrag(object sender, MouseButtonEventArgs args)
     {
         var hit = args.GetPosition(view);
@@ -334,6 +370,12 @@ internal sealed class DesktopSurface : IDisposable
     private void ResetHost()
     {
         EndDrag();
+        if (reorderHook != IntPtr.Zero)
+        {
+            Native.UnhookWinEvent(reorderHook);
+            reorderHook = IntPtr.Zero;
+        }
+        reorderCallback = null;
         if (source is { IsDisposed: false })
         {
             source.RootVisual = null;
@@ -372,6 +414,8 @@ internal static class Native
     public const int SizeMessage = 0x0005;
     public const int MinimizeCommand = 0xF020;
     public const int SizeMinimized = 1;
+    public const uint EventObjectReorder = 0x8004;
+    public const uint WinEventOutOfContext = 0;
 
     public static IntPtr DesktopHost()
     {
@@ -462,6 +506,14 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+
+    public delegate void WinEventDelegate(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module, WinEventDelegate callback, uint process, uint thread, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(IntPtr hook);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
