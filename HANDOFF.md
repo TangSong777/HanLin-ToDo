@@ -39,7 +39,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 | Actions | Stable release 工作流已注册，state=active |
 | 本地 | D:\WorkSpace\HanLin-ToDo，日常开发在 snapshot |
 | 打包 | Windows x64 自包含单文件使用 `tools/Publish-Windows.ps1` 发布到 `D:\桌面\HanLin-ToDo` |
-| 桌面层级与输入 | 独立顶层工具窗口承载 WPF 输入，Z 序位于桌面图标之上和普通窗口之下 |
+| 桌面层级与输入 | 独立顶层工具窗口承载 WPF 输入，Z 序位于桌面图标之上和普通窗口之下；拦截 Win+D 与「显示桌面」的隐藏和最小化，显示状态只由托盘菜单控制 |
 | 登录自启 | 首次启动启用当前用户的登录启动项，已有配置沿用当前启动设置 |
 | 位置操作 | 解锁后仅标题栏可拖动便签，锁图标固定位置、尺寸和界面比例，任务三点手柄用于排序 |
 | 显示器布局 | 按屏幕布局签名分别记住便签位置和尺寸，串流单屏与双屏切换后自动恢复 |
@@ -52,7 +52,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单，核心诉求�
 | 撤销删除 | 左下角显示小字圆角提示，底色随主题变化，5 秒后自动收起 |
 | 拖动排序 | 三点手柄使用手形光标。拖动时整条任务的半透明预览跟随鼠标，插入线贴合目标行，拖到清单边缘可滚动 |
 | 本地数据 | `todo.md` 默认位于 EXE 同级 `data`，支持切换工作目录。任务详情、回收站和旧清单元数据随 Markdown 保存 |
-| 本次验证 | 完成 1.0.2 的 .NET 10 Release 打包与 EXE SHA256 校验，README 按 HanLin-IME 结构重写 |
+| 本次验证 | 完成 Win+D 拦截改动的 .NET 10 Release 编译与打包，EXE SHA256 为 3C605BF1…400FF |
 
 ## 三、分支模型
 
@@ -154,6 +154,7 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 - [x] 归档旧打包和验证产物，更新输入法说明并移除无引用资源
 - [x] 按显示器布局分别记住便签位置和尺寸，切换后自动恢复
 - [x] 按 HanLin-IME 的结构重写 README
+- [x] 让便签不受 Win+D 和「显示桌面」影响，显示状态只由托盘设置决定
 - [ ] 首次 snapshot → main 的 PR 演练，验证规则集与检查确实生效
 - [ ] 视需要补充 LICENSE、CONTRIBUTING
 
@@ -195,3 +196,4 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 | 2026-11-24 | 正文和标题可选三种字体 | 正文字体增加悦黑体，标题字体改为独立的微软雅黑、宋体、悦黑体三选一，旧「跟随正文」设置自动迁移 |
 | 2026-11-25 | 发布 1.0.2 | 显示器布局记忆、三字体、键盘两步 Enter、自绘字体下拉，tag v1.0.2，GitHub Release 附带 EXE |
 | 2026-11-25 | 重构 README | 按 HanLin-IME 的结构重写目录、快速开始、功能、安装、使用、实现要点与发布流程 |
+| 2026-11-25 | 便签不再受 Win+D 影响 | 拦截桌面切换的隐藏与最小化请求，显示状态只由托盘菜单控制 |

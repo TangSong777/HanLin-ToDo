@@ -24,6 +24,7 @@ internal sealed class DesktopSurface : IDisposable
     private ResizeEdge resizeEdges;
     private bool dragging;
     private bool movedPastThreshold;
+    private bool allowHide;
     private bool disposed;
 
     public DesktopSurface(NoteView view, NotePreferences preferences, Action<NotePreferences> savePlacement)
@@ -96,9 +97,19 @@ internal sealed class DesktopSurface : IDisposable
             PlaceOnDesktop(window);
         }
         if (Native.IsWindowVisible(window) != visible)
-            Native.SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0,
-                Native.NoMove | Native.NoSize | Native.NoZOrder | Native.NoActivate
-                | (visible ? Native.ShowWindow : Native.HideWindow));
+        {
+            allowHide = !visible;
+            try
+            {
+                Native.SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0,
+                    Native.NoMove | Native.NoSize | Native.NoZOrder | Native.NoActivate
+                    | (visible ? Native.ShowWindow : Native.HideWindow));
+            }
+            finally
+            {
+                allowHide = false;
+            }
+        }
     }
 
     public void EndDrag()
@@ -205,6 +216,30 @@ internal sealed class DesktopSurface : IDisposable
 
     private IntPtr NoteMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == Native.WindowPosChanging)
+        {
+            // Win+D and "Show desktop" hide every top-level window; keep the note visible.
+            var position = Marshal.PtrToStructure<Native.WindowPos>(lParam);
+            if ((position.flags & Native.HideWindow) != 0 && !allowHide)
+            {
+                position.flags &= ~Native.HideWindow;
+                Marshal.StructureToPtr(position, lParam, false);
+            }
+            return IntPtr.Zero;
+        }
+        if (message == Native.SysCommand && (wParam.ToInt64() & 0xFFF0) == Native.MinimizeCommand)
+        {
+            handled = true;
+            return IntPtr.Zero;
+        }
+        if (message == Native.SizeMessage && wParam.ToInt64() == Native.SizeMinimized && !allowHide)
+        {
+            view.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (!disposed && source is { IsDisposed: false } active && active.Handle == window)
+                    Native.RestoreWindow(window, Native.ShowNoActivate);
+            }));
+        }
         if (message == Native.MouseActivate)
         {
             handled = true;
@@ -332,6 +367,11 @@ internal static class Native
     public const int ActivateMessage = 0x0006;
     public const int MouseActivate = 0x0021;
     public const int ActivateAndDeliver = 1;
+    public const int WindowPosChanging = 0x0046;
+    public const int SysCommand = 0x0112;
+    public const int SizeMessage = 0x0005;
+    public const int MinimizeCommand = 0xF020;
+    public const int SizeMinimized = 1;
 
     public static IntPtr DesktopHost()
     {
@@ -367,6 +407,18 @@ internal static class Native
         public int Left = left, Top = top, Right = right, Bottom = bottom;
         public readonly int Width => Right - Left;
         public readonly int Height => Bottom - Top;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WindowPos
+    {
+        public IntPtr hwnd;
+        public IntPtr hwndInsertAfter;
+        public int x;
+        public int y;
+        public int cx;
+        public int cy;
+        public uint flags;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
