@@ -1,6 +1,6 @@
 # HanLin 系列设计规范
 
-2026-11-26 · Windows · 寒淋输入法、HanLin-Notes、HanLin-ToDo
+2026-11-26 · Windows · 寒淋输入法、寒淋笔记、寒淋待办
 
 ## 应用图标
 
@@ -9,8 +9,8 @@
 | 应用 | 识别字 | 字色 |
 | --- | --- | --- |
 | 寒淋输入法 | 淋 | 三点水 `#AA333C`，右侧「林」`#000000` |
-| HanLin-Notes | 记 | `#000000` |
-| HanLin-ToDo | 办 | `#000000` |
+| 寒淋笔记 | 记 | `#000000` |
+| 寒淋待办 | 办 | `#000000` |
 
 统一用米白底 `#F8F8F6`、珊瑚描边 `#CF6266`、造字工房悦黑常规体。圆角以外透明。字形按可见像素边界等比居中。Windows 输入状态保留「中／英」功能图标，应用入口用「淋」。
 
@@ -52,21 +52,21 @@
 
 | 产品工作区 | 系列配色的应用 |
 | --- | --- |
-| 寒淋输入法 | 右击 Windows「中／英」入口进入统计、词库管理和设置。工具窗采用暖白、珊瑚与字标标题。打字候选窗使用原版 **Color-P**，中文宋体，拼音和英文 Arial，基准 **16 px**，随 Windows DPI 缩放。 |
-| HanLin-Notes | 笔记库、文档、弹窗、菜单使用系列色板，保留原有浅色、深色和跟随系统选择。笔记库浅色画布为 `#F4EFEA`，深色画布和卡片为 `#1A1614`、`#221D1A`。正文可另选字体。页面转场 180 ms，跟随 Windows 动画设置。 |
-| HanLin-ToDo | 便签按 **236 × 411 DIP**、正文 **14 DIP**、圆角 **8 DIP**、任务行留白 **6 DIP** 初始化。便签里的颜色、字体和尺寸可调，设置窗用固定系列配色。新增、完成、排序等反馈采用 140 ms 淡出，跟随 Windows 动画设置。 |
+| 寒淋输入法 | 右击 Windows「中／英」入口进入统计、词库管理和设置。工具窗采用暖白、珊瑚与字标标题。全新安装采用 HanLin 暖白珊瑚候选窗，已有本机皮肤时优先读取。中文宋体，拼音和英文 Arial，基准 **16 px**，随 Windows DPI 缩放。 |
+| 寒淋笔记 | 笔记库、文档、弹窗、菜单使用系列色板，保留原有浅色、深色和跟随系统选择。笔记库浅色画布为 `#F4EFEA`，深色画布和卡片为 `#1A1614`、`#221D1A`。正文可另选字体。页面转场 180 ms，跟随 Windows 动画设置。 |
+| 寒淋待办 | 便签按 **236 × 411 DIP**、正文 **14 DIP**、圆角 **8 DIP**、任务行留白 **6 DIP** 初始化。便签里的颜色、字体和尺寸可调，设置窗用固定系列配色。新增、完成、排序等反馈采用 140 ms 淡出，跟随 Windows 动画设置。 |
 
 ## 设置与操作
 
-| 标签 | 寒淋输入法 | HanLin-Notes | HanLin-ToDo |
+| 标签 | 寒淋输入法 | 寒淋笔记 | 寒淋待办 |
 | --- | --- | --- | --- |
 | 常规 | 输入方案及编辑入口 | 笔记默认排序 | 登录 Windows 后自动显示便签 |
-| 外观 | 显示 Color-P、字体和字号 | 主题和正文字体 | 尺寸、界面比例、配色、字体、圆角、行距 |
+| 外观 | 显示主题来源、字体和字号 | 主题和正文字体 | 尺寸、界面比例、配色、字体、圆角、行距 |
 | 数据 | 数据文件夹和进阶配置 | 数据文件夹、本地备份、回收站清理周期 | 数据文件夹、工作目录选择、打开任务文件 |
 | 关于 | 产品、版本、词库搜索快捷键 | 产品、版本、快捷键和库统计 | 产品、版本和快捷键 |
 
 - 入口统一叫「设置」。Notes 主窗和 ToDo 便签内支持 `Ctrl+,`，各自的通知区菜单也提供入口。IME 通过「中／英」菜单或开始菜单打开，ToDo 可从开始菜单直接打开设置。
-- `Ctrl+F` 进入当前可见工作区的搜索。Notes 在文档编辑区搜索当前文档，笔记库搜索全库。ToDo 搜索便签任务，IME 在词库管理中搜索词条。
+- `Ctrl+F` 进入当前可见工作区的搜索。寒淋笔记在文档编辑区搜索当前文档，笔记库搜索全库。寒淋待办搜索便签任务，IME 在词库管理中搜索词条。
 - 有可编辑字段时，修改先留在窗口里，点「保存」后一起生效。「取消」、关闭按钮和 `Esc` 放弃窗口内未保存的编辑。打开文件夹、查看关于等导航可直接执行。
 - IME 设置页提供查看和进入配置文件的操作，底部为「关闭」。进阶设置在编辑器保存后，通过词库管理的「一键部署」生效。
 - 菜单和对话框里的回收站、彻底删除、取消、保存分别使用相同中文动词。需要确认时，按钮写明具体动作，例如「删除」与「取消」。可恢复的记录放在对应产品的回收站里。
@@ -80,8 +80,8 @@
 | 产品 | 权限与默认位置 | 用户数据 |
 | --- | --- | --- |
 | 寒淋输入法 | 管理员注册 x64 和 x86 Windows 文本服务，默认 `Program Files\HanLin`，升级读取已登记的位置 | 默认 `%APPDATA%\HanLin`，也可由现有 `UserDataDir` 指定。词库、方案、统计独立于程序安装目录。 |
-| HanLin-Notes | 当前用户安装，默认 `%LOCALAPPDATA%\Programs\HanLin\HanLin-Notes` | 程序旁的 `Data`。更新旧便携版时选择其现有文件夹，笔记随原目录使用。 |
-| HanLin-ToDo | 当前用户安装，默认采用已登记安装位置，其次用现有登录启动项定位便携版，再使用 `%LOCALAPPDATA%\Programs\HanLin\HanLin-ToDo` | 程序旁的 `data\todo.md` 或设置所选位置。个人设置在 `%LOCALAPPDATA%\HanLin-ToDo\settings.json`。 |
+| 寒淋笔记 | 当前用户安装，默认 `%LOCALAPPDATA%\Programs\HanLin\HanLin-Notes` | 程序旁的 `Data`。更新旧便携版时选择其现有文件夹，笔记随原目录使用。 |
+| 寒淋待办 | 当前用户安装，默认采用已登记安装位置，其次用现有登录启动项定位便携版，再使用 `%LOCALAPPDATA%\Programs\HanLin\HanLin-ToDo` | 程序旁的 `data\todo.md` 或设置所选位置。个人设置在 `%LOCALAPPDATA%\HanLin-ToDo\settings.json`。 |
 
 程序文件由安装器更新和卸载，旧数据可继续从原文件夹打开。Notes 仍可直接启动程序目录里的 EXE，ToDo 同时提供内含运行时的单文件便携 EXE。更换安装目录时，旧便携数据随原文件夹保留，可在需要时选择该目录。输入法词库在打包时使用暂存配置编译，可与桌面正在运行的输入服务并行。
 
@@ -90,7 +90,7 @@
 | 项目 | 图标 | 界面和配置 | 安装 |
 | --- | --- | --- | --- |
 | HanLin-IME | `src/HanLin/icons/hanlin.ico`、`src/build-support/gen-hanlin-icon.py` | `src/HanLin/Tools/Theme.cs`、`Windows.cs` | `src/installer/HanLin.iss`、`build-installer.ps1` |
-| HanLin-Notes | `assets/hanlin-notes.ico`、`tools/new-app-icon.py` | `timodesk/ui/theme.py`、`dialogs.py`、`settings.py` | `installer/HanLin-Notes.iss`、`tools/make-portable.py` |
-| HanLin-ToDo | `src/HanLin.ToDo/Assets/HanLin-ToDo.ico`、`tools/New-TaskbarIcon.py` | `src/HanLin.ToDo/Views/Theme.xaml`、`Ui.cs`、`SettingsWindow.cs` | `installer/HanLin-ToDo.iss`、`tools/Build-Installer.ps1` |
+| 寒淋笔记 | `assets/hanlin-notes.ico`、`tools/new-app-icon.py` | `timodesk/ui/theme.py`、`dialogs.py`、`settings.py` | `installer/HanLin-Notes.iss`、`tools/make-portable.py` |
+| 寒淋待办 | `src/HanLin.ToDo/Assets/HanLin-ToDo.ico`、`tools/New-TaskbarIcon.py` | `src/HanLin.ToDo/Views/Theme.xaml`、`Ui.cs`、`SettingsWindow.cs` | `installer/HanLin-ToDo.iss`、`tools/Build-Installer.ps1` |
 
 各仓库自带相同的向导公共文件，可独立构建。更新共用向导时，将 `HanLinWizard.iss` 和语言文件同步到三处。更新图标时，同步源 ICO、README 图标和安装器侧图。在 Windows 检查 16–32 px 图标、100% 与 125% 缩放时的设置页、键盘操作，以及安装、覆盖升级和卸载后的数据。
