@@ -3,3 +3,8 @@
 > 每次改动追加一行：日期 · 类型 · 改了什么 · 为什么 · 影响范围。
 > 发版时读完整本账本，汇总进 `CHANGELOG.md` 与 GitHub Release 说明，然后清空本文件。
 
+- 2026-11-26 · 功能 · 任务附件：文件拖到任务行即复制进工作目录 `Attachments`，行尾回形针徽标（多附件显示数量、缺失变灰），点击打开或列表选择；右键菜单支持在文件夹中显示、复制路径、改显示名、重新定位、添加与移除；详情页新增「附件文件」区 · 用户要求把文件副本留在便签里，原文件移动或删除不影响显示 · 新增 `Attachments.cs`、`NoteView.Attachments.cs`，`Tasks.cs` 的 `TodoDetails` 增加 `Files` 字段，旧 `Attachments` 保持只读兼容
+- 2026-11-26 · 功能 · 搜索命中附件文件名，导出 Markdown 把附件写成相对链接 · 让附件和任务一起被检索与备份 · `Tasks.cs`、`App.xaml.cs`
+- 2026-11-26 · 重构 · 默认数据目录由 `data` 改名 `Data`，旧目录在首次启动时自动迁移 · 统一目录大小写 · `Storage.cs` 新增 `MigrateLegacyDirectory`，`--data-dir` 参数名不变
+- 2026-11-26 · 功能 · 快速录入框按 Tab 直接展开日历，方向键选日期，Enter 确认后回到输入框 · 与 Ctrl+Alt+T 录入窗口的 Tab 行为对齐 · `NoteView.Tasks.cs`
+

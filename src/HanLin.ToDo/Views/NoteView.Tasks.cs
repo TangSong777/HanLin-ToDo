@@ -16,6 +16,9 @@ internal sealed partial class NoteView
 {
     private TextBox quickInput = null!;
     private DatePicker quickDate = null!;
+    private System.Windows.Controls.Calendar? quickKeyboardCalendar;
+    private DateTime? quickDateAtOpen;
+    private DateTime? quickDateBeforeKeyboardSelection;
     private DeadlineTimeBox quickTime = null!;
     private Grid quickDeadlineRow = null!;
     private TextBlock quickDeadlineLabel = null!;
@@ -83,9 +86,9 @@ internal sealed partial class NoteView
         panel.Children.Add(quickRow);
         panel.Children.Add(CreateQuickDeadlineRow());
         quickInput.KeyDown += ConfirmQuickTask;
+        quickInput.PreviewKeyDown += OpenQuickCalendar;
         quickTime.PreviewKeyDown += ConfirmQuickTask;
-        DateTime? dateAtOpen = null;
-        quickDate.CalendarOpened += (_, _) => dateAtOpen = quickDate.SelectedDate;
+        quickDate.CalendarOpened += (_, _) => quickDateAtOpen = quickDate.SelectedDate;
         quickDate.SelectedDateChanged += (_, _) =>
         {
             if (!quickDate.IsDropDownOpen)
@@ -93,7 +96,12 @@ internal sealed partial class NoteView
         };
         quickDate.CalendarClosed += (_, _) =>
         {
-            var priorDate = dateAtOpen;
+            if (quickKeyboardCalendar is { } keyboard)
+            {
+                keyboard.PreviewKeyDown -= OnQuickCalendarKey;
+                quickKeyboardCalendar = null;
+            }
+            var priorDate = quickDateAtOpen;
             Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
                 if (quickDate.IsDropDownOpen)
@@ -182,6 +190,45 @@ internal sealed partial class NoteView
             return;
         SubmitQuickTask();
         args.Handled = true;
+    }
+
+    // 在快速录入框按 Tab 直接展开日历，方向键选日期，Enter 确认后回到输入框。
+    private void OpenQuickCalendar(object sender, KeyEventArgs args)
+    {
+        if (args.Key != Key.Tab || args.KeyboardDevice.Modifiers != ModifierKeys.None || IsPickerOpen)
+            return;
+        quickDate.ApplyTemplate();
+        if (quickDate.Template.FindName("PART_Popup", quickDate) is not Popup { Child: System.Windows.Controls.Calendar calendar })
+            return;
+        quickDateBeforeKeyboardSelection = quickDate.SelectedDate;
+        DateTime start = quickDateBeforeKeyboardSelection ?? DateTime.Today;
+        quickDate.SelectedDate = start;
+        quickDate.DisplayDate = start;
+        quickDateAtOpen = start;
+        quickKeyboardCalendar = calendar;
+        calendar.PreviewKeyDown += OnQuickCalendarKey;
+        args.Handled = true;
+        quickDate.IsDropDownOpen = true;
+    }
+
+    private void OnQuickCalendarKey(object sender, KeyEventArgs args)
+    {
+        if (!quickDate.IsDropDownOpen || args.KeyboardDevice.Modifiers != ModifierKeys.None)
+            return;
+        if (args.Key == Key.Escape)
+        {
+            quickDate.SelectedDate = quickDateBeforeKeyboardSelection;
+            quickDateAtOpen = quickDateBeforeKeyboardSelection;
+            return;
+        }
+        if (args.Key != Key.Enter || quickKeyboardCalendar?.DisplayMode != CalendarMode.Month)
+            return;
+        args.Handled = true;
+        quickDate.IsDropDownOpen = false;
+        quickDateBeforeKeyboardSelection = null;
+        UpdateQuickDeadline();
+        // 第一次 Enter 只确认日期，再按一次 Enter 才保存任务。
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => quickInput.Focus()));
     }
 
     private StackPanel CreateTaskNavigation()

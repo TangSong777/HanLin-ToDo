@@ -164,7 +164,7 @@ internal sealed class TaskLocation(string profileDirectory, bool commandLineOver
 
     public bool CanChoose { get; } = !commandLineOverride;
     public string DefaultDirectory { get; } = commandLineOverride
-        ? profileDirectory : Path.Combine(AppContext.BaseDirectory, "data");
+        ? profileDirectory : Path.Combine(AppContext.BaseDirectory, "Data");
     public string? LegacyFile { get; } = commandLineOverride ? null : Path.Combine(profileDirectory, FileName);
 
     public string Resolve(string? configured)
@@ -175,6 +175,46 @@ internal sealed class TaskLocation(string profileDirectory, bool commandLineOver
         if (!Path.IsPathFullyQualified(path))
             throw new ArgumentException("请输入完整的工作目录路径。");
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
+
+    // 1.0.3 及更早版本使用小写 data；Windows 文件名不区分大小写，Directory.Exists
+    // 无法区分 data 与 Data，因此按目录名逐字判断，并借临时名完成大小写改名。
+    public void MigrateLegacyDirectory(string directory)
+    {
+        if (!CanChoose || !string.Equals(directory, DefaultDirectory, StringComparison.OrdinalIgnoreCase))
+            return;
+        string? parent = Path.GetDirectoryName(directory);
+        if (parent is null)
+            return;
+        try
+        {
+            if (!HasEntry(parent, "data") || HasEntry(parent, "Data"))
+                return;
+            string legacy = Path.Combine(parent, "data");
+            string staging = Path.Combine(parent, ".data-migrating-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.Move(legacy, staging);
+            try
+            {
+                Directory.Move(staging, directory);
+            }
+            catch
+            {
+                Directory.Move(staging, legacy);
+                throw;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 目录被占用或没有权限时保持原状，下次启动再试。
+        }
+    }
+
+    private static bool HasEntry(string parent, string name)
+    {
+        foreach (string path in Directory.EnumerateDirectories(parent))
+            if (string.Equals(Path.GetFileName(path), name, StringComparison.Ordinal))
+                return true;
+        return false;
     }
 
     public static TaskFile FileIn(string directory) => new(Path.Combine(directory, FileName));

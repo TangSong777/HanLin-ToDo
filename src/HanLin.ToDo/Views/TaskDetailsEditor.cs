@@ -26,8 +26,11 @@ internal sealed class TaskDetailsEditor : StackPanel
     private readonly TextBox linkInput;
     private readonly StackPanel stepsPanel = new();
     private readonly StackPanel filesPanel = new();
+    private readonly StackPanel filePanel = new();
     private readonly List<TodoStep> steps;
     private readonly List<string> attachments;
+    private readonly List<TodoFile> files;
+    private readonly string workspace;
     private readonly TextBlock notice = Ui.Text("", 12, "OverdueBrush");
     private bool invalidReminder;
 
@@ -41,11 +44,13 @@ internal sealed class TaskDetailsEditor : StackPanel
 
     public bool IsPickerOpen => reminder.IsDropDownOpen || repeat.IsDropDownOpen;
 
-    public TaskDetailsEditor(TodoDetails details)
+    public TaskDetailsEditor(TodoDetails details, string workspace = "")
     {
         original = details;
+        this.workspace = workspace;
         steps = [..details.Steps ?? []];
         attachments = [..details.Attachments ?? []];
+        files = [..details.Files ?? []];
         Margin = new Thickness(0, 5, 1, 1);
 
         repeat = new ComboBox
@@ -134,6 +139,12 @@ internal sealed class TaskDetailsEditor : StackPanel
         Children.Add(AddLine(stepInput, "添加步骤", AddStep));
         RenderSteps();
 
+        Field("附件文件", filePanel);
+        var addFiles = Ui.Button("添加文件…（复制进便签）", BrowseFiles);
+        addFiles.HorizontalAlignment = HorizontalAlignment.Left;
+        Children.Add(addFiles);
+        RenderFiles();
+
         Field("附件和链接", filesPanel);
         var browse = Ui.Button("选择本地文件", Browse);
         browse.HorizontalAlignment = HorizontalAlignment.Left;
@@ -204,6 +215,7 @@ internal sealed class TaskDetailsEditor : StackPanel
             Memo = string.IsNullOrWhiteSpace(memo.Text) ? null : memo.Text.Trim(),
             Tags = labels.Length == 0 ? null : labels,
             Steps = allSteps.Count == 0 ? null : allSteps.ToArray(),
+            Files = files.Count == 0 ? null : files.ToArray(),
             Attachments = allAttachments.Count == 0 ? null : allAttachments.Distinct(StringComparer.Ordinal).ToArray()
         };
         return true;
@@ -241,6 +253,78 @@ internal sealed class TaskDetailsEditor : StackPanel
             input.TextChanged += (_, _) => steps[slot] = steps[slot] with { Title = input.Text };
             row.Children.Add(input);
             stepsPanel.Children.Add(row);
+        }
+    }
+
+    private void BrowseFiles()
+    {
+        var browser = new OpenFileDialog { Multiselect = true, Title = "选择要复制进便签的附件", CheckFileExists = true };
+        if (browser.ShowDialog() != true)
+            return;
+        int added = 0;
+        foreach (string path in browser.FileNames)
+        {
+            try
+            {
+                var file = AttachmentStore.Import(workspace, path);
+                if (files.Any(old => string.Equals(old.RelativePath, file.RelativePath, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                files.Add(file);
+                added++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+            }
+        }
+        if (added == 0)
+        {
+            ShowNotice("这些文件已经在任务里了。");
+            return;
+        }
+        ShowNotice(null);
+        RenderFiles();
+    }
+
+    private void RenderFiles()
+    {
+        filePanel.Children.Clear();
+        for (int index = 0; index < files.Count; ++index)
+        {
+            int slot = index;
+            TodoFile file = files[slot];
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
+            var remove = Ui.Button("移除附件", () => { files.RemoveAt(slot); RenderFiles(); }, "close");
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+            bool missing = !AttachmentStore.Exists(workspace, file);
+            var open = Ui.Button("打开 " + file.Name, () => OpenFileAttachment(file));
+            open.HorizontalContentAlignment = HorizontalAlignment.Left;
+            open.ToolTip = AttachmentStore.FullPath(workspace, file);
+            var text = Ui.Text(file.Name + "  " + AttachmentStore.FormatSize(file.Size) + (missing ? "（已缺失）" : ""), 12);
+            text.TextTrimming = TextTrimming.CharacterEllipsis;
+            open.Content = text;
+            row.Children.Add(open);
+            filePanel.Children.Add(row);
+        }
+        if (files.Count == 0)
+            filePanel.Children.Add(Ui.Text("还没有附件文件。", 12, "MutedBrush"));
+    }
+
+    private void OpenFileAttachment(TodoFile file)
+    {
+        string path = AttachmentStore.FullPath(workspace, file);
+        if (!File.Exists(path))
+        {
+            ShowNotice("找不到 " + file.Name + "。");
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            ShowNotice("附件暂时无法打开。");
         }
     }
 

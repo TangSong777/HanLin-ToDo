@@ -66,6 +66,8 @@ internal sealed record TodoDetails
     public string[]? Tags { get; init; }
     public TodoStep[]? Steps { get; init; }
     public string[]? Attachments { get; init; }
+    // 文件附件保存的是工作目录内的副本；旧的 Attachments 只读兼容，不改结构以免旧版读不回任务。
+    public TodoFile[]? Files { get; init; }
 }
 
 internal sealed record TodoItem(int Offset, string Line, int Mark, int Body, int ContentEnd,
@@ -125,7 +127,8 @@ internal static class TodoViews
             return true;
         bool Has(string? text) => text?.Contains(normalized, StringComparison.CurrentCultureIgnoreCase) == true;
         return Has(item.Title) || Has(item.Details.Memo) || item.Details.Tags?.Any(Has) == true
-            || item.Details.Steps?.Any(step => Has(step.Title)) == true || item.Details.Attachments?.Any(Has) == true;
+            || item.Details.Steps?.Any(step => Has(step.Title)) == true || item.Details.Attachments?.Any(Has) == true
+            || item.Details.Files?.Any(file => Has(file.Name)) == true;
     }
 
     public static IEnumerable<TodoItem> Sort(IEnumerable<TodoItem> items, TaskSort order)

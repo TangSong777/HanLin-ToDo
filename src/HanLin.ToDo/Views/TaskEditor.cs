@@ -31,7 +31,7 @@ internal sealed class TaskEditor : Border
     private string hintText = "";
 
     public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
-        bool isCaptureWindow = false)
+        bool isCaptureWindow = false, string workspace = "")
     {
         this.save = save;
         this.cancel = cancel;
@@ -89,7 +89,7 @@ internal sealed class TaskEditor : Border
         schedule.Children.Add(time);
         fields.Children.Add(schedule);
 
-        detailsEditor = new TaskDetailsEditor(draft.Details);
+        detailsEditor = new TaskDetailsEditor(draft.Details, workspace);
         var details = new Expander
         {
             Header = Ui.Heading("任务详情", 13),
@@ -338,7 +338,7 @@ internal sealed class CaptureWindow : Window
 {
     private readonly TaskEditor editor;
 
-    public CaptureWindow(NoteTheme theme, Func<TodoDraft, string?> save)
+    public CaptureWindow(NoteTheme theme, Func<TodoDraft, string?> save, string workspace = "")
     {
         Ui.ConfigureText(this);
         Title = "HanLin-ToDo · 新建待办";
@@ -360,7 +360,7 @@ internal sealed class CaptureWindow : Window
             if (error is null)
                 Close();
             return error;
-        }, Close, isCaptureWindow: true);
+        }, Close, isCaptureWindow: true, workspace: workspace);
         Content = CreateFrame(theme);
         ContentRendered += (_, _) => FocusEditor();
         SizeChanged += (_, args) =>

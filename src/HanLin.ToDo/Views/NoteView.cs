@@ -45,6 +45,8 @@ internal sealed partial class NoteView : Border
     public event Action<TodoItem, bool>? DoneChanged;
     public Func<TodoItem, TodoDraft, string?>? SaveEdit { get; set; }
     public bool IsLocked => settings.Locked;
+    // 工作目录；附件记录里存的是相对这里的路径。
+    public string Workspace { get; set; } = "";
     public bool IsEditingTask => editor is not null;
     public bool IsPickerOpen => quickDate.IsDropDownOpen || quickTime.IsDropDownOpen || editor?.IsPickerOpen == true;
 
@@ -391,6 +393,7 @@ internal sealed partial class NoteView : Border
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(22) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(28) });
         grid.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
 
         var handle = CanReorder ? CreateTaskHandle(item) : null;
         if (handle is not null)
@@ -403,7 +406,7 @@ internal sealed partial class NoteView : Border
         Grid.SetColumn(check, 1);
         grid.Children.Add(check);
 
-        var text = new StackPanel { Margin = new Thickness(4, 0, 3, 0), VerticalAlignment = VerticalAlignment.Center };
+        var text = new StackPanel { Margin = new Thickness(4, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(text, 2);
         grid.Children.Add(text);
         var title = Ui.Text(item.Title, settings.Theme.Size, item.Done ? "MutedBrush" : "InkBrush");
@@ -445,6 +448,10 @@ internal sealed partial class NoteView : Border
             text.Children.Add(extra);
         }
 
+        var attachments = CreateAttachmentBadge(item);
+        Grid.SetColumn(attachments, 3);
+        grid.Children.Add(attachments);
+
         var feedback = new Border { CornerRadius = new CornerRadius(5), Opacity = 0, IsHitTestVisible = false };
         feedback.SetResourceReference(BackgroundProperty, "TintBrush");
         var rowContent = new Grid();
@@ -457,6 +464,7 @@ internal sealed partial class NoteView : Border
             row.ContextMenu = CreateMenu();
             row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
         }
+        EnableAttachmentDrop(row, item, feedback);
         taskRows.Add(item, new TaskRow(row, handle, feedback));
         return row;
     }
@@ -478,7 +486,7 @@ internal sealed partial class NoteView : Border
             if (error is null)
                 CloseEditor();
             return error;
-        }, CloseEditor);
+        }, CloseEditor, workspace: Workspace);
         Render();
         editor.FocusTitle();
         editor.BringIntoView();

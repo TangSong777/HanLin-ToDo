@@ -43,8 +43,8 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 ## 快速开始
 
 1. 从 [Releases](https://github.com/TangSong777/HanLin-ToDo/releases/latest) 下载 `HanLin-ToDo.exe`，放到任意目录双击运行。
-2. 首次启动会在 EXE 同级创建 `data` 文件夹和 `todo.md`，便签出现在主屏幕右上方。
-3. 在便签顶部输入一行，按 **Enter** 添加。点击输入栏旁的日历可以先选截止日期。
+2. 首次启动会在 EXE 同级创建 `Data` 文件夹和 `todo.md`，便签出现在主屏幕右上方。
+3. 在便签顶部输入一行，按 **Enter** 添加。点击输入栏旁的日历（或在输入框按 **Tab**）可以先选截止日期。
 4. 按 **Ctrl+Alt+T** 随时打开录入窗口，焦点直接落在任务名称输入框。
 
 任务就是 Markdown 复选框，可以用任何编辑器打开 `todo.md`：
@@ -87,7 +87,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 ### 搜索
 
-点击左下角的放大镜或按 **Ctrl+F**，搜索任务标题、备注、标签、步骤和附件。
+点击左下角的放大镜或按 **Ctrl+F**，搜索任务标题、备注、标签、步骤、附件和附件文件名。
 
 ### 外观与设置
 
@@ -101,7 +101,11 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 ### 工作目录
 
-在「设置 → 数据」选择存放 `todo.md` 的文件夹。所选目录已有 `todo.md` 时直接读取，否则复制当前任务文件。点「默认」可选回 EXE 同级的 `data` 文件夹，保存后立即使用。
+在「设置 → 数据」选择存放 `todo.md` 的文件夹。所选目录已有 `todo.md` 时直接读取，否则复制当前任务文件。点「默认」可选回 EXE 同级的 `Data` 文件夹，保存后立即使用。
+
+### 附件
+
+把文件拖到某条任务上，文件会复制进工作目录的 `Attachments` 文件夹，原文件移动或删除都不影响便签里的副本。任务右侧出现回形针图标，点开即可打开；多个附件时弹出列表选择。右键图标可以显示所在文件夹、复制路径、改显示名或移除记录。详情页的「附件文件」也能添加和移除。附件文件名参与搜索，导出 Markdown 时写成相对链接。
 
 ### 托盘与自启
 
@@ -119,7 +123,8 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 | 内容 | 位置 |
 | --- | --- |
-| 任务文件 | 默认 EXE 同级 `data\todo.md`，可在设置中改到任意目录 |
+| 任务文件 | 默认 EXE 同级 `Data\todo.md`，可在设置中改到任意目录 |
+| 附件副本 | 工作目录下的 `Attachments`，拖进便签的文件都复制到这里 |
 | 设置 | `%LOCALAPPDATA%\HanLin-ToDo\settings.json` |
 | 旧版任务 | `%LOCALAPPDATA%\HanLin-ToDo\todo.md`，升级后首次启动时复制到缺少任务文件的目标 |
 
@@ -181,7 +186,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 ### 数据存储
 
-`Storage.cs` 负责读写 `todo.md` 和 `settings.json`。任务详情、回收站和旧清单元数据以 HTML 注释形式随 Markdown 保存，普通 Markdown 预览不受影响。
+`Storage.cs` 负责读写 `todo.md` 和 `settings.json`。任务详情、回收站和旧清单元数据以 HTML 注释形式随 Markdown 保存，普通 Markdown 预览不受影响。附件由 `Attachments.cs` 复制到工作目录的 `Attachments`，任务里只记相对路径、原文件名和大小。
 
 ## 构建与打包
 

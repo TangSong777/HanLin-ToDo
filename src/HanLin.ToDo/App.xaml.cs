@@ -113,6 +113,7 @@ public partial class App : Application
             note.BatchDeleteRequested += DeleteTasks;
             note.ExportRequested += ExportTasks;
             desktop = new DesktopSurface(note, preferences, SavePlacement);
+            note.Workspace = Path.GetDirectoryName(tasks.Path)!;
             note.UpdateTasks(current);
             note.ShowNotice(warning);
             CreateTray();
@@ -149,6 +150,7 @@ public partial class App : Application
         try
         {
             directory = taskLocation.Resolve(preferences.WorkingDirectory);
+            taskLocation.MigrateLegacyDirectory(directory);
         }
         catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or NotSupportedException)
         {
@@ -250,7 +252,7 @@ public partial class App : Application
     {
         if (capture is null)
         {
-            capture = new CaptureWindow(preferences.Theme, AddTask);
+            capture = new CaptureWindow(preferences.Theme, AddTask, Path.GetDirectoryName(tasks.Path) ?? "");
             capture.Closed += (_, _) => capture = null;
             capture.Show();
             capture.FocusEditor();
@@ -330,6 +332,9 @@ public partial class App : Application
                         markdown.Append("  > ").AppendLine(line);
                 foreach (string attachment in item.Details.Attachments ?? [])
                     markdown.Append("  - ").AppendLine(attachment);
+                foreach (var file in item.Details.Files ?? [])
+                    markdown.Append("  - [").Append(file.Name).Append("](")
+                        .Append(file.RelativePath.Replace('\\', '/')).AppendLine(")");
             }
             AtomicFile.Write(dialog.FileName, markdown.ToString());
             note.ShowNotice($"已导出 {items.Count} 项任务。");
@@ -444,6 +449,7 @@ public partial class App : Application
                     note.ShowUndo(null);
                     note.EndSelection();
                 }
+                note.Workspace = Path.GetDirectoryName(tasks.Path)!;
                 note.UpdateTasks(current);
             }
             return null;
