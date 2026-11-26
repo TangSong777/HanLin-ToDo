@@ -125,7 +125,7 @@ gh api repos/TangSong777/HanLin-ToDo/rules/branches/main
 ## 八、开发约定
 
 - `todo.md` 保存在所选工作目录。默认在 EXE 同级 `Data`，附件副本在同目录的 `Attachments`，已有旧版任务会在首次使用时复制到缺少任务文件的目标。`%LOCALAPPDATA%\HanLin-ToDo\settings.json` 保存工作目录选择、位置、锁定和外观等设置。开发验证可用 `--data-dir <目录>` 固定独立的任务和设置目录。
-- 每次交付本地新版时使用 `tools/Publish-Windows.ps1`，将最新 EXE 保存到 `D:\桌面\HanLin-ToDo`。
+- 每次交付本地新版时使用 `tools/Publish-Windows.ps1`，固定三步：**先关闭正在运行的便签进程 → 把最新 EXE 替换到 `D:\桌面\HanLin-ToDo` → 再启动新版本**。替换前必须结束进程，否则单文件 EXE 被占用，脚本只能另存为带时间戳的文件，桌面上的仍是旧版。用户确认测试新版前，先核对 `D:\桌面\HanLin-ToDo\HanLin-ToDo.exe` 的时间戳，别让旧包冒充新包。
 - `DesktopSurface` 使用独立顶层工具窗口承载便签。桌面窗口句柄用于定位 Z 序，窗口的位置和尺寸使用屏幕坐标，移到不同 DPI 的显示器后按新 DPI 校正。
 - 图标生成器是 `tools/New-TaskbarIcon.py`。应用构建使用已生成的 ICO。字体仅用于本地生成。
 - 提交信息用英文祈使句（现有提交：`Initialize stable release rules`、`Record project goals and development workflow`）。
