@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -13,12 +15,13 @@ namespace HanLin.ToDo;
 
 internal sealed partial class NoteView
 {
-    private sealed record TaskRow(Border Face, Thumb? Handle, Border Feedback);
+    private sealed record TaskRow(Border Face, Thumb? Handle, Border Feedback, CheckBox Check);
     private readonly record struct DropLocation(TodoItem Item, bool After);
-    private sealed record TaskDragPreview(Grid Ghost, TranslateTransform Position, TodoItem[] Group, int OriginalIndex);
+    private sealed record TaskDragPreview(
+        Grid Ghost, TranslateTransform Position, ScaleTransform Scale, TodoItem[] Group, int OriginalIndex);
 
     private readonly Dictionary<TodoItem, TaskRow> taskRows = [];
-    private readonly DispatcherTimer taskReorderTimer = new() { Interval = TimeSpan.FromMilliseconds(32) };
+    private readonly DispatcherTimer taskReorderTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly Canvas taskDragLayer = new() { IsHitTestVisible = false, ClipToBounds = true };
     private readonly Border taskDropMarker = new()
     {
@@ -60,7 +63,7 @@ internal sealed partial class NoteView
             var destination = args.Canceled ? null : dropLocation;
             ClearTaskDrag();
             if (destination is { } target)
-                MoveTask(item, target, showFeedback: false);
+                MoveTask(item, target);
         };
         handle.PreviewKeyDown += (_, args) =>
         {
@@ -91,7 +94,7 @@ internal sealed partial class NoteView
                 return;
             preview = taskDragPreview = CreateTaskDragPreview(item, source.Face);
             taskDragLayer.Children.Insert(0, preview.Ghost);
-            source.Face.Opacity = 0.26;
+            Ui.Fade(source.Face, 1, 0.26, 140);
             taskReorderTimer.Start();
         }
 
@@ -103,12 +106,20 @@ internal sealed partial class NoteView
     private TaskDragPreview CreateTaskDragPreview(TodoItem item, Border row)
     {
         var position = new TranslateTransform();
+        var scale = new ScaleTransform(1, 1);
+        var transform = new TransformGroup();
+        transform.Children.Add(scale);
+        transform.Children.Add(position);
         var ghost = new Grid
         {
-            Width = row.ActualWidth, Height = row.ActualHeight, Opacity = 0.84, RenderTransform = position,
-            UseLayoutRounding = false
+            Width = row.ActualWidth, Height = row.ActualHeight, Opacity = 0, RenderTransform = transform,
+            RenderTransformOrigin = new Point(0.5, 0.5), UseLayoutRounding = false
         };
-        var edge = new Border { CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1) };
+        var edge = new Border
+        {
+            CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1),
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 14, ShadowDepth = 3, Opacity = 0.22 }
+        };
         edge.SetResourceReference(BackgroundProperty, "SurfaceBrush");
         edge.SetResourceReference(BorderBrushProperty, "EdgeBrush");
         ghost.Children.Add(edge);
@@ -126,7 +137,16 @@ internal sealed partial class NoteView
         var group = taskRows.Where(pair => InSameOrderGroup(item, pair.Key))
             .OrderBy(pair => TaskRowBounds(pair.Value.Face).Top)
             .Select(pair => pair.Key).ToArray();
-        return new(ghost, position, group, Array.IndexOf(group, item));
+        // Lift the row into place instead of snapping it under the cursor.
+        Ui.Fade(ghost, 0, 0.94, 130);
+        var lift = new DoubleAnimation(1, 1.014, TimeSpan.FromMilliseconds(150))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, lift);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, lift.Clone());
+        return new(ghost, position, scale, group, Array.IndexOf(group, item));
     }
 
     private DropLocation? FindDropLocation(TaskDragPreview preview, double y)
@@ -164,12 +184,27 @@ internal sealed partial class NoteView
         if (!IsNearTaskViewport(cursor))
             return;
         double viewport = taskDragLayer.ActualHeight;
-        double edge = Math.Min(25, viewport / 4);
+        if (viewport <= 0)
+            return;
+        double edge = Math.Min(44, viewport / 3);
         double offset = taskScroll.VerticalOffset;
+        double step = 0;
         if (cursor.Y < edge && offset > 0)
-            taskScroll.ScrollToVerticalOffset(offset - 14);
+            step = -ScrollStep(cursor.Y, edge);
         else if (cursor.Y > viewport - edge && offset < taskScroll.ScrollableHeight)
-            taskScroll.ScrollToVerticalOffset(offset + 14);
+            step = ScrollStep(viewport - cursor.Y, edge);
+        if (Math.Abs(step) < 0.01)
+            return;
+        double next = Math.Clamp(offset + step, 0, taskScroll.ScrollableHeight);
+        if (Math.Abs(next - offset) > 0.01)
+            taskScroll.ScrollToVerticalOffset(next);
+    }
+
+    // Scrolling ramps up as the cursor approaches the edge, so long lists stay reachable.
+    private static double ScrollStep(double distanceToEdge, double edge)
+    {
+        double closeness = Math.Clamp(1 - distanceToEdge / edge, 0, 1);
+        return 2 + 9 * closeness;
     }
 
     private void ShowDropLocation(DropLocation? location)
@@ -177,7 +212,8 @@ internal sealed partial class NoteView
         dropLocation = location;
         if (location is not { } target)
         {
-            taskDropMarker.Visibility = Visibility.Hidden;
+            if (taskDropMarker.Visibility == Visibility.Visible)
+                Ui.FadeOutAndCollapse(taskDropMarker, 90);
             return;
         }
         Rect bounds = TaskRowBounds(taskRows[target.Item].Face);
@@ -185,6 +221,8 @@ internal sealed partial class NoteView
         taskDropPosition.X = bounds.Left + 2;
         taskDropPosition.Y = target.After ? bounds.Bottom - taskDropMarker.Height : bounds.Top;
         taskDropMarker.Visibility = Visibility.Visible;
+        if (taskDropMarker.Opacity < 0.99)
+            Ui.Fade(taskDropMarker, taskDropMarker.Opacity, 1, 100);
     }
 
     private void ClearTaskDrag()
@@ -197,7 +235,11 @@ internal sealed partial class NoteView
         {
             taskDragLayer.Children.Remove(preview.Ghost);
             taskDragPreview = null;
-            row?.Face.ClearValue(OpacityProperty);
+            if (row is not null)
+            {
+                row.Face.BeginAnimation(OpacityProperty, null);
+                row.Face.ClearValue(OpacityProperty);
+            }
         }
         if (row?.Handle is { IsDragging: true } handle)
             handle.CancelDrag();

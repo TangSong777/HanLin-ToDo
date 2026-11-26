@@ -7,4 +7,5 @@
 - 2026-11-26 · 功能 · 搜索命中附件文件名，导出 Markdown 把附件写成相对链接 · 让附件和任务一起被检索与备份 · `Tasks.cs`、`App.xaml.cs`
 - 2026-11-26 · 重构 · 默认数据目录由 `data` 改名 `Data`，旧目录在首次启动时自动迁移 · 统一目录大小写 · `Storage.cs` 新增 `MigrateLegacyDirectory`，`--data-dir` 参数名不变
 - 2026-11-26 · 功能 · 快速录入框按 Tab 直接展开日历，方向键选日期，Enter 确认后回到输入框 · 与 Ctrl+Alt+T 录入窗口的 Tab 行为对齐 · `NoteView.Tasks.cs`
+- 2026-11-26 · 体验 · 统一动效：任务行入场、完成与置顶反馈、通知与撤销条滑入滑出、附件徽标弹入、附件拖放高亮渐显、右键菜单淡入；拖拽预览加阴影与轻微抬升，插入线淡入，靠近边缘时自动滚动加速 · 让状态变化可感知、拖动落点更清楚 · `Ui.cs` 新增动效工具，`NoteView.cs`、`NoteView.Tasks.cs`、`NoteView.Attachments.cs`、`NoteView.Reorder.cs`
 

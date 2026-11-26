@@ -18,7 +18,7 @@ internal static class Ui
 
     public static FontFamily Resolve(string font) =>
         font == NoteFonts.YueHei ? YueHei.Value ?? new FontFamily(NoteFonts.YaHei) : new FontFamily(font);
-    private static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
+    public static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
 
     public static void SetTheme(NoteTheme theme, ResourceDictionary? palette = null)
     {
@@ -64,15 +64,184 @@ internal static class Ui
         TextOptions.SetTextHintingMode(root, TextHintingMode.Fixed);
     }
 
-    public static void FadeDecoration(UIElement decoration, double from, double to)
+    public static void FadeDecoration(UIElement decoration, double from, double to) => Fade(decoration, from, to, 140);
+
+    // All motion goes through these helpers so timing and easing stay consistent and
+    // every animation settles on its end value instead of snapping back.
+    public static void Fade(UIElement element, double from, double to, int durationMs = 150, IEasingFunction? easing = null)
     {
-        if (!MotionEnabled)
+        if (!MotionEnabled || durationMs <= 0)
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = to;
             return;
-        decoration.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(140))
+        }
+        var fade = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = easing ?? new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        fade.Completed += (_, _) =>
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = to;
+        };
+        element.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    public static void FadeOutAndCollapse(FrameworkElement element, int durationMs = 130)
+    {
+        if (!MotionEnabled || durationMs <= 0)
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = 0;
+            element.Visibility = Visibility.Collapsed;
+            return;
+        }
+        double start = element.Opacity;
+        var fade = new DoubleAnimation(start, 0, TimeSpan.FromMilliseconds(durationMs))
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            FillBehavior = FillBehavior.Stop
-        });
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        fade.Completed += (_, _) =>
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = 0;
+            element.Visibility = Visibility.Collapsed;
+        };
+        element.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    // Used for rows that just appeared: a short rise keeps the eye on the new item.
+    public static void SlideFadeIn(FrameworkElement element, double offsetY = 7, int durationMs = 190)
+    {
+        if (!MotionEnabled || durationMs <= 0)
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = 1;
+            element.RenderTransform = Transform.Identity;
+            return;
+        }
+        var slide = new TranslateTransform(0, offsetY);
+        element.RenderTransform = slide;
+        Fade(element, 0, 1, durationMs);
+        var move = new DoubleAnimation(offsetY, 0, TimeSpan.FromMilliseconds(durationMs + 30))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        move.Completed += (_, _) =>
+        {
+            slide.BeginAnimation(TranslateTransform.YProperty, null);
+            slide.Y = 0;
+            if (element.RenderTransform == slide)
+                element.RenderTransform = Transform.Identity;
+        };
+        slide.BeginAnimation(TranslateTransform.YProperty, move);
+    }
+
+    // Counterpart for banners and toasts that leave the screen.
+    public static void SlideFadeOut(FrameworkElement element, double offsetY = 8, int durationMs = 140, Action? finished = null)
+    {
+        if (!MotionEnabled || durationMs <= 0)
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = 0;
+            finished?.Invoke();
+            return;
+        }
+        var slide = new TranslateTransform(0, 0);
+        element.RenderTransform = slide;
+        int remaining = 1;
+        void Done()
+        {
+            if (--remaining > 0)
+                return;
+            slide.BeginAnimation(TranslateTransform.YProperty, null);
+            if (element.RenderTransform == slide)
+                element.RenderTransform = Transform.Identity;
+            finished?.Invoke();
+        }
+        var fade = new DoubleAnimation(element.Opacity, 0, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        fade.Completed += (_, _) => Done();
+        element.BeginAnimation(UIElement.OpacityProperty, fade);
+        var move = new DoubleAnimation(0, offsetY, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        move.Completed += (_, _) => Done();
+        slide.BeginAnimation(TranslateTransform.YProperty, move);
+    }
+
+    // Badges and freshly attached controls grow into place with a slight overshoot.
+    public static void PopIn(FrameworkElement element, double fromScale = 0.82, int durationMs = 200)
+    {
+        double target = element.Opacity;
+        if (!MotionEnabled || durationMs <= 0)
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = target;
+            element.RenderTransform = Transform.Identity;
+            return;
+        }
+        var scale = new ScaleTransform(fromScale, fromScale);
+        element.RenderTransformOrigin = new Point(0.5, 0.5);
+        element.RenderTransform = scale;
+        var grow = new DoubleAnimation(fromScale, 1, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = new BackEase { Amplitude = 0.28, EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        grow.Completed += (_, _) =>
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            if (element.RenderTransform == scale)
+                element.RenderTransform = Transform.Identity;
+        };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, grow.Clone());
+        var fade = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(Math.Min(160, durationMs)))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        fade.Completed += (_, _) =>
+        {
+            element.BeginAnimation(UIElement.OpacityProperty, null);
+            element.Opacity = target;
+        };
+        element.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    // A quick scale bounce that confirms an action without moving any layout.
+    public static void Bounce(FrameworkElement element, double fromScale = 0.7, int durationMs = 210)
+    {
+        if (!MotionEnabled || durationMs <= 0)
+            return;
+        var scale = new ScaleTransform(fromScale, fromScale);
+        element.RenderTransformOrigin = new Point(0.5, 0.5);
+        element.RenderTransform = scale;
+        var settle = new DoubleAnimation(fromScale, 1, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = new BackEase { Amplitude = 0.35, EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        settle.Completed += (_, _) =>
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            if (element.RenderTransform == scale)
+                element.RenderTransform = Transform.Identity;
+        };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, settle);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, settle.Clone());
     }
 
     public static Color ColorFrom(string value) => (Color)ColorConverter.ConvertFromString(value)!;

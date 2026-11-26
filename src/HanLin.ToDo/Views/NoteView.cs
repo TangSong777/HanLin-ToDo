@@ -37,6 +37,7 @@ internal sealed partial class NoteView : Border
     private bool initialized;
     private bool loadedTasks;
     private bool deferredRowRefresh;
+    private readonly HashSet<string> enteringRows = [];
 
     public event Action? NewRequested;
     public event Action? SettingsRequested;
@@ -294,6 +295,14 @@ internal sealed partial class NoteView : Border
         }
         var prior = snapshot;
         snapshot = next;
+        if (prior.Items.Count > 0 && SearchQuery.Length == 0)
+        {
+            // Only tasks that really arrived are animated in; a fresh window or filtered list stays calm.
+            var known = prior.Items.Select(item => item.Details.Id).OfType<string>().ToHashSet();
+            foreach (var item in next.Items)
+                if (item.Details.Id is { } id && !known.Contains(id))
+                    enteringRows.Add(id);
+        }
         if (CanRefreshRows)
         {
             Render();
@@ -327,8 +336,17 @@ internal sealed partial class NoteView : Border
 
     public void ShowNotice(string? message)
     {
-        notice.Text = message ?? "";
-        notice.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
+        if (message is null)
+        {
+            if (notice.Visibility == Visibility.Visible)
+                Ui.FadeOutAndCollapse(notice);
+            return;
+        }
+        bool wasHidden = notice.Visibility != Visibility.Visible;
+        notice.Text = message;
+        notice.Visibility = Visibility.Visible;
+        if (wasHidden)
+            Ui.Fade(notice, 0, 1, 160);
     }
 
     private void Render()
@@ -465,16 +483,32 @@ internal sealed partial class NoteView : Border
             row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
         }
         EnableAttachmentDrop(row, item, feedback);
-        taskRows.Add(item, new TaskRow(row, handle, feedback));
+        taskRows.Add(item, new TaskRow(row, handle, feedback, check));
+        if (SearchQuery.Length == 0 && item.Details.Id is { } id && enteringRows.Remove(id))
+        {
+            row.Opacity = 0;
+            row.Loaded += (_, _) => Ui.SlideFadeIn(row);
+        }
         return row;
     }
 
     private void AnimateTaskChanges(TodoSnapshot prior)
     {
         var oldById = prior.Items.Where(item => item.Details.Id is not null).ToLookup(item => item.Details.Id);
-        foreach (var item in taskRows.Keys.Where(item => item.Details.Id is { } id &&
-            !oldById[id].Any(old => old.Done == item.Done && old.Details.Pinned == item.Details.Pinned)).Take(4))
-            Ui.FadeDecoration(taskRows[item].Feedback, 1, 0);
+        int animated = 0;
+        foreach (var item in taskRows.Keys)
+        {
+            if (animated >= 4 || item.Details.Id is not { } id)
+                continue;
+            var before = oldById[id].ToArray();
+            if (before.Length == 0 || before.Any(old => old.Done == item.Done && old.Details.Pinned == item.Details.Pinned))
+                continue;
+            ++animated;
+            var row = taskRows[item];
+            Ui.Fade(row.Feedback, 1, 0);
+            if (before.Any(old => old.Done != item.Done))
+                Ui.Bounce(row.Check);
+        }
     }
 
     private void BeginEdit(TodoItem item)
@@ -490,6 +524,7 @@ internal sealed partial class NoteView : Border
         Render();
         editor.FocusTitle();
         editor.BringIntoView();
+        Ui.SlideFadeIn(editor, 8, 180);
     }
 
     private void CloseEditor()

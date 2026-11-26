@@ -415,9 +415,21 @@ internal sealed partial class NoteView
     {
         undoTimer.Stop();
         undoId = id;
-        undoToast.Visibility = id is null ? Visibility.Collapsed : Visibility.Visible;
-        if (id is not null)
-            undoTimer.Start();
+        if (id is null)
+        {
+            if (undoToast.Visibility == Visibility.Visible)
+                Ui.SlideFadeOut(undoToast, 8, 130, () =>
+                {
+                    if (undoId is null)
+                        undoToast.Visibility = Visibility.Collapsed;
+                });
+            return;
+        }
+        bool appearing = undoToast.Visibility != Visibility.Visible;
+        undoToast.Visibility = Visibility.Visible;
+        if (appearing)
+            Ui.SlideFadeIn(undoToast, 10, 170);
+        undoTimer.Start();
     }
 
     private void UndoDelete()
@@ -522,7 +534,12 @@ internal sealed partial class NoteView
         return grid;
     }
 
-    private static ContextMenu CreateMenu() => new() { Style = (Style)Application.Current.FindResource("SoftMenu") };
+    private static ContextMenu CreateMenu()
+    {
+        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("SoftMenu") };
+        menu.Opened += (_, _) => Ui.Fade(menu, 0, 1, 120);
+        return menu;
+    }
 
     private static Separator MenuDivider() => new() { Style = (Style)Application.Current.FindResource("SoftMenuDivider") };
 

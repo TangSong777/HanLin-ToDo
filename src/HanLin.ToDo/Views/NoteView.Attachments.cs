@@ -18,6 +18,7 @@ internal sealed partial class NoteView
 {
     private const int AttachmentLimit = 50;
     private readonly HashSet<string> freshAttachments = [];
+    private Border? attachmentHover;
 
     private FrameworkElement CreateAttachmentBadge(TodoItem item)
     {
@@ -59,7 +60,7 @@ internal sealed partial class NoteView
         };
         badge.ContextMenu = BuildAttachmentMenu(item, badge);
         if (item.Details.Id is { } id && freshAttachments.Remove(id))
-            Ui.FadeDecoration(badge, 0, badge.Opacity);
+            Ui.PopIn(badge);
         return badge;
     }
 
@@ -214,12 +215,12 @@ internal sealed partial class NoteView
     private void EnableAttachmentDrop(Border row, TodoItem item, Border feedback)
     {
         row.AllowDrop = true;
-        row.DragEnter += (_, args) => AttachmentDrag(args, feedback);
-        row.DragOver += (_, args) => AttachmentDrag(args, feedback);
-        row.DragLeave += (_, _) => feedback.Opacity = 0;
+        row.DragEnter += (_, args) => AttachmentDrag(args, feedback, entering: true);
+        row.DragOver += (_, args) => AttachmentDrag(args, feedback, entering: false);
+        row.DragLeave += (_, _) => ClearAttachmentHover(feedback, 150);
         row.Drop += (_, args) =>
         {
-            feedback.Opacity = 0;
+            ClearAttachmentHover(feedback, 120);
             if (!args.Data.GetDataPresent(DataFormats.FileDrop))
                 return;
             if (args.Data.GetData(DataFormats.FileDrop) is string[] paths)
@@ -228,12 +229,32 @@ internal sealed partial class NoteView
         };
     }
 
-    private static void AttachmentDrag(DragEventArgs args, Border feedback)
+    // The highlight fades in once per drag instead of restarting on every DragOver.
+    private void AttachmentDrag(DragEventArgs args, Border feedback, bool entering)
     {
         bool files = args.Data.GetDataPresent(DataFormats.FileDrop);
         args.Effects = files ? DragDropEffects.Copy : DragDropEffects.None;
-        feedback.Opacity = files ? 0.75 : 0;
+        if (files)
+        {
+            if (attachmentHover != feedback)
+            {
+                attachmentHover = feedback;
+                Ui.Fade(feedback, feedback.Opacity, 0.75, entering ? 110 : 90);
+            }
+        }
+        else if (attachmentHover == feedback)
+        {
+            ClearAttachmentHover(feedback, 120);
+        }
         args.Handled = true;
+    }
+
+    private void ClearAttachmentHover(Border feedback, int durationMs)
+    {
+        if (attachmentHover != feedback)
+            return;
+        attachmentHover = null;
+        Ui.Fade(feedback, feedback.Opacity, 0, durationMs);
     }
 
     private void AddAttachmentPaths(TodoItem item, IEnumerable<string> paths)
