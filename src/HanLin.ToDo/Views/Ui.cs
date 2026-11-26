@@ -20,13 +20,13 @@ internal static class Ui
         font == NoteFonts.YueHei ? YueHei.Value ?? new FontFamily(NoteFonts.YaHei) : new FontFamily(font);
     private static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
 
-    public static void SetTheme(NoteTheme theme)
+    public static void SetTheme(NoteTheme theme, ResourceDictionary? palette = null)
     {
         Color surface = ColorFrom(theme.Surface);
         Color accent = ColorFrom(theme.Accent);
         Color ink = ContrastInk(surface);
         bool pale = Luminance(surface) > 0.65;
-        var resources = Application.Current.Resources;
+        var resources = palette ?? Application.Current.Resources;
         var titleFont = theme.TitleFont switch
         {
             NoteTitleFont.SimSun => new FontFamily(NoteFonts.SimSun),
@@ -51,6 +51,7 @@ internal static class Ui
         resources["HoverBrush"] = Brush(Mix(surface, accent, 0.24));
         resources["PressBrush"] = Brush(Mix(surface, accent, 0.37));
         resources["AccentHoverBrush"] = Brush(Mix(accent, ink, 0.09));
+        resources["AccentPressBrush"] = Brush(Mix(accent, ink, 0.14));
         resources["EdgeBrush"] = Brush(Mix(surface, ink, 0.15));
         resources["LineBrush"] = Brush(Mix(surface, ink, 0.07));
     }
@@ -173,8 +174,13 @@ internal static class Ui
         return box;
     }
 
-    public static BitmapSource AppIcon() =>
-        BitmapFrame.Create(new Uri("pack://application:,,,/Assets/HanLin-ToDo.ico"));
+    public static BitmapSource AppIcon(int? pixelSize = null)
+    {
+        var icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/HanLin-ToDo.ico"));
+        return pixelSize is int size
+            ? icon.Decoder.Frames.OrderBy(frame => Math.Abs(frame.PixelWidth - size)).First()
+            : icon;
+    }
 
     private static Color Mix(Color baseColor, Color other, double weight)
     {

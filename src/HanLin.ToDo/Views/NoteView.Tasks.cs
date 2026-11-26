@@ -275,6 +275,8 @@ internal sealed partial class NoteView
             ShowSearch();
         else if (args.Key == Key.N)
             quickInput.Focus();
+        else if (args.Key == Key.OemComma)
+            SettingsRequested?.Invoke();
         else if (args.Key == Key.Z && args.OriginalSource is not (TextBoxBase or ComboBox or DatePicker) && undoId is not null)
             UndoDelete();
         else

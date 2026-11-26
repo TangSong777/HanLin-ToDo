@@ -82,7 +82,7 @@ internal sealed partial class NoteView : Border
         actions.Children.Add(Ui.Button("新建待办", () => NewRequested?.Invoke(), "plus"));
         lockButton = Ui.Button("锁定位置和尺寸", () => LockRequested?.Invoke(), "unlock");
         actions.Children.Add(lockButton);
-        actions.Children.Add(Ui.Button("便签设置", () => SettingsRequested?.Invoke(), "settings"));
+        actions.Children.Add(Ui.Button("设置", () => SettingsRequested?.Invoke(), "settings"));
         header.Children.Add(actions);
 
         var title = Ui.Heading("待办", NoteTheme.DefaultTextSize + 4);

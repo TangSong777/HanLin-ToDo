@@ -32,16 +32,64 @@
             </Trigger>
             <Trigger Property="Tag" Value="Primary">
               <Setter TargetName="Hover" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
-              <Setter TargetName="Press" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+              <Setter TargetName="Press" Property="Background" Value="{DynamicResource AccentPressBrush}"/>
             </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+              <Setter TargetName="FocusRing" Property="BorderBrush" Value="{DynamicResource OverdueBrush}"/>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
               <Setter TargetName="Press" Property="Opacity" Value="1"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="Caption" Property="Opacity" Value="0.5"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SettingsTabs" TargetType="TabControl">
+    <Setter Property="ItemsPanel">
+      <Setter.Value>
+        <ItemsPanelTemplate>
+          <StackPanel Orientation="Horizontal" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+        </ItemsPanelTemplate>
+      </Setter.Value>
+    </Setter>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabControl">
+          <DockPanel>
+            <ItemsPresenter DockPanel.Dock="Top" KeyboardNavigation.TabNavigation="Once"/>
+            <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource LineBrush}">
+              <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+            </Border>
+          </DockPanel>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SettingsTab" TargetType="TabItem">
+    <Setter Property="Margin" Value="0,0,4,5"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabItem">
+          <Border x:Name="Chip" Height="32" MinWidth="72" Padding="12,0" CornerRadius="7"
+                  Background="Transparent" BorderThickness="1">
+            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chip" Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Chip" Property="Background" Value="{DynamicResource TintBrush}"/>
+              <Setter Property="Foreground" Value="{DynamicResource OverdueBrush}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Chip" Property="BorderBrush" Value="{DynamicResource OverdueBrush}"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

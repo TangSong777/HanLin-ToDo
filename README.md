@@ -4,9 +4,9 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 | | |
 | --- | --- |
-| 版本 | `1.0.2` |
+| 版本 | `1.1.0` |
 | 运行环境 | Windows 10 / 11 x64，.NET 10 自包含单文件 |
-| 发布产物 | `HanLin-ToDo.exe`（单文件，约 72 MB） |
+| 发布产物 | `HanLin-ToDo-Setup-<版本>.exe`（安装包）、`HanLin-ToDo.exe`（便携单文件） |
 | 许可证 | 未声明（仓库暂无 LICENSE 文件） |
 
 ## 目录
@@ -95,17 +95,19 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 ### 工作目录
 
-在「便签设置 → 工作目录」选择存放 `todo.md` 的文件夹。所选目录已有 `todo.md` 时直接读取，否则复制当前任务文件。点「默认」可选回 EXE 同级的 `data` 文件夹，保存后立即使用。
+在「设置 → 数据」选择存放 `todo.md` 的文件夹。所选目录已有 `todo.md` 时直接读取，否则复制当前任务文件。点「默认」可选回 EXE 同级的 `data` 文件夹，保存后立即使用。
 
 ### 托盘与自启
 
-程序启动后恢复位置、尺寸、界面比例、锁定状态、外观和任务。首次运行默认开启登录自启，可在便签设置中关闭。通知区域右键菜单可显示、隐藏或退出。
+程序启动后恢复位置、尺寸、界面比例、锁定状态、外观和任务。首次运行默认开启登录自启，可在「设置 → 常规」关闭。通知区域右键菜单可显示、隐藏或退出。便签内按 `Ctrl+,` 打开设置。 [HanLin 系列设计规范](docs/HANLIN-SERIES.md)
 
 ## 安装
 
 ### 运行
 
-下载 `HanLin-ToDo.exe` 后直接双击运行，无需安装 .NET 运行时。程序是自包含单文件，约 72 MB。
+运行 `HanLin-ToDo-Setup-<版本>.exe`，选择安装位置并确认。安装为当前用户添加开始菜单入口。已有便携版时，选其现有目录即可继续读取程序旁的任务。
+
+也可双击单文件便携版 `HanLin-ToDo.exe`，它内含 .NET 运行时。
 
 ### 数据位置
 
@@ -117,7 +119,7 @@ HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻�
 
 ### 卸载
 
-退出程序，删除 EXE 和 `data` 文件夹即可。登录自启项可在设置中关闭，或从「任务管理器 → 启动」移除。
+安装版可在 Windows「设置 → 应用」卸载，任务文件保留在数据文件夹中。便携版可退出后移除 EXE。登录自启项可在设置中关闭。
 
 ## 使用
 
@@ -198,6 +200,14 @@ dotnet build .\src\HanLin.ToDo\HanLin.ToDo.csproj -c Release -warnaserror
 
 图标用本机安装的造字工房悦黑常规体绘制「办」，沿用原输入法图标的珊瑚红外框。仓库包含生成好的多尺寸 ICO。需要重新绘制时，用 Python 和 Pillow 运行 `tools/New-TaskbarIcon.py`，传入本机字体文件和 ICO 输出路径。
 
+用 PowerShell 7 和 Inno Setup 6.6 或更新版本构建系列安装向导。
+
+```powershell
+pwsh -File .\tools\Build-Installer.ps1
+```
+
+输出在 `installer/output`。脚本在暂存目录生成便携 EXE，再编译安装包。
+
 ## 项目结构
 
 ```text
@@ -251,6 +261,8 @@ snapshot ──► main ──► tag + Release
 
 | 版本 | 说明 |
 | --- | --- |
+| 1.1.0 | 设置四页、系列安装向导、C 案「办」字图标、Build-Installer 打包 |
+| 1.0.3 | 便签改为 Explorer 桌面拥有，修 Win+D 覆盖 |
 | 1.0.2 | 显示器布局记忆、正文与标题三字体、键盘两步 Enter、自绘字体下拉 |
 | 1.0.1 | 自绘新建待办窗口、锁定尺寸、默认外观调整 |
 | 1.0.0 | 首个正式版本 |
@@ -270,7 +282,7 @@ git push origin snapshot
 # 2. 更新 src/HanLin.ToDo/HanLin.ToDo.csproj 的 Version
 # 3. 清空 PENDING-CHANGES.md，标题改为「自 <新版本> 起」
 # 4. 提交并推送 snapshot
-# 5. .\tools\Publish-Windows.ps1 打包，记录 EXE 的 SHA256
+# 5. .\tools\Build-Installer.ps1 打包（暂存目录同时产出自包含单文件 EXE），记录资产 SHA256
 # 6. 临时禁用 main 规则集，git switch main && git merge --ff-only snapshot，推送后恢复
 # 7. git tag -a v<版本> -m "..."，推送 tag
 # 8. gh release create v<版本> --repo TangSong777/HanLin-ToDo --title "..." --notes-file ... --latest

@@ -42,6 +42,8 @@ public partial class App : Application
     private HwndSource? hotkey;
     private EventWaitHandle? launchSignal;
     private RegisteredWaitHandle? launchWait;
+    private EventWaitHandle? settingsSignal;
+    private RegisteredWaitHandle? settingsWait;
     private Mutex? instance;
     private bool ownsInstance;
     private bool noteVisible = true;
@@ -58,11 +60,13 @@ public partial class App : Application
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HanLin-ToDo")));
             string identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(directory.ToUpperInvariant())))[..16];
             string exclusiveName = @"Local\HanLinToDo-" + identity;
+            bool openSettings = e.Args.Contains("--settings", StringComparer.Ordinal);
             launchSignal = new EventWaitHandle(false, EventResetMode.AutoReset, exclusiveName + "-show");
+            settingsSignal = new EventWaitHandle(false, EventResetMode.AutoReset, exclusiveName + "-settings");
             instance = new Mutex(true, exclusiveName, out ownsInstance);
             if (!ownsInstance)
             {
-                launchSignal.Set();
+                (openSettings ? settingsSignal : launchSignal).Set();
                 Shutdown();
                 return;
             }
@@ -125,6 +129,11 @@ public partial class App : Application
             launchWait = ThreadPool.RegisterWaitForSingleObject(launchSignal,
                 (_, _) => Dispatcher.BeginInvoke(new Action(() => SetNoteVisible(true))),
                 null, Timeout.Infinite, executeOnlyOnce: false);
+            settingsWait = ThreadPool.RegisterWaitForSingleObject(settingsSignal,
+                (_, _) => Dispatcher.BeginInvoke(new Action(ShowSettings)),
+                null, Timeout.Infinite, executeOnlyOnce: false);
+            if (openSettings)
+                ShowSettings();
         }
         catch (Exception ex) when (IsExpected(ex) || ex is ArgumentException or InvalidOperationException)
         {
@@ -213,7 +222,8 @@ public partial class App : Application
         trayMenu = new TrayMenu();
         trayMenu.AddAction("新建待办", "plus", ShowCapture, "Ctrl+Alt+T");
         visibleMenu = trayMenu.AddAction("隐藏便签", "eye-off", () => SetNoteVisible(!noteVisible));
-        trayMenu.AddAction("便签设置", "settings", ShowSettings);
+        trayMenu.AddAction("设置…", "settings", ShowSettings);
+        trayMenu.AddAction("打开数据文件夹", "file", OpenDataFolder);
         trayMenu.AddAction("打开任务文件", "file", OpenTaskFile);
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.AddAction("退出 HanLin-ToDo", "exit", Shutdown);
@@ -361,7 +371,7 @@ public partial class App : Application
             {
                 settingsWindow = new SettingsWindow(preferences, startup.Command is not null,
                     Path.GetDirectoryName(tasks.Path)!, taskLocation.CanChoose ? taskLocation.DefaultDirectory : null,
-                    OpenTaskFile, ApplySettings);
+                    OpenTaskFile, OpenDataFolder, ApplySettings);
                 settingsWindow.Closed += (_, _) => settingsWindow = null;
                 settingsWindow.Show();
             }
@@ -568,6 +578,20 @@ public partial class App : Application
         }
     }
 
+    private void OpenDataFolder()
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(tasks.Path)!;
+            Directory.CreateDirectory(directory);
+            using var folder = Process.Start(new ProcessStartInfo(directory) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (IsExpected(ex))
+        {
+            note.ShowNotice("无法打开数据文件夹。");
+        }
+    }
+
     private void OpenTaskFile()
     {
         try
@@ -610,6 +634,7 @@ public partial class App : Application
         displayTimer?.Stop();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         launchWait?.Unregister(null);
+        settingsWait?.Unregister(null);
         if (hotkey is { IsDisposed: false })
         {
             Native.UnregisterHotKey(hotkey.Handle, HotkeyId);
@@ -627,6 +652,7 @@ public partial class App : Application
             instance?.ReleaseMutex();
         instance?.Dispose();
         launchSignal?.Dispose();
+        settingsSignal?.Dispose();
         base.OnExit(e);
     }
 

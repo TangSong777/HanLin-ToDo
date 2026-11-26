@@ -1,9 +1,11 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using Drawing = System.Drawing;
@@ -13,7 +15,7 @@ namespace HanLin.ToDo;
 
 internal sealed class SettingsWindow : Window
 {
-    private readonly StackPanel fields = new() { Margin = new Thickness(20, 16, 20, 14) };
+    private readonly StackPanel fields = SectionContent();
     private readonly TextBox accent;
     private readonly TextBox surface;
     private readonly FontPicker font;
@@ -33,27 +35,45 @@ internal sealed class SettingsWindow : Window
     private int displayedScale;
 
     public SettingsWindow(NotePreferences preferences, bool startWithWindows, string currentDirectory, string? defaultDirectory,
-        Action openTasks, Func<NoteTheme, bool, string, string?> save)
+        Action openTasks, Action openFolder, Func<NoteTheme, bool, string, string?> save)
     {
         var theme = preferences.Theme;
         Ui.ConfigureText(this);
-        Title = "HanLin-ToDo · 便签设置";
+        Ui.SetTheme(new NoteTheme(), Resources);
+        Title = "HanLin-ToDo · 设置";
         Icon = Ui.AppIcon();
-        Width = 410;
-        SizeToContent = SizeToContent.Height;
-        MaxHeight = SystemParameters.WorkArea.Height - 24;
+        Width = Math.Min(600, SystemParameters.WorkArea.Width - 24);
+        Height = Math.Min(454, SystemParameters.WorkArea.Height - 24);
         ResizeMode = ResizeMode.NoResize;
+        WindowStyle = WindowStyle.None;
+        AllowsTransparency = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Background = Brushes.Transparent;
         FontFamily = new FontFamily("Microsoft YaHei UI");
-        FontSize = 14;
-        SetResourceReference(BackgroundProperty, "SurfaceBrush");
+        FontSize = 13;
         SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
         var frame = new DockPanel();
-        Content = frame;
+        var card = new Border { Child = frame, CornerRadius = new(10), BorderThickness = new(1) };
+        card.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
+        card.SetResourceReference(Border.BorderBrushProperty, "EdgeBrush");
+        RenderOptions.SetClearTypeHint(card, ClearTypeHint.Enabled);
+        Content = card;
 
-        workingDirectory = AddWorkingDirectory(currentDirectory, defaultDirectory);
-        var heading = Ui.Heading("尺寸和比例", 20);
-        heading.Margin = new Thickness(0, 13, 0, 7);
+        var header = CreateHeader();
+        DockPanel.SetDock(header, Dock.Top);
+        frame.Children.Add(header);
+        var tabs = new TabControl { Margin = new Thickness(20, 12, 20, 0) };
+        tabs.SetResourceReference(StyleProperty, "SettingsTabs");
+        tabs.AutomationName("设置分类");
+        var general = SectionContent();
+        var data = SectionContent();
+        var about = SectionContent();
+        AddSection(tabs, "常规", general);
+        AddSection(tabs, "外观", fields);
+        AddSection(tabs, "数据", data);
+        AddSection(tabs, "关于", about);
+        var heading = Ui.Heading("尺寸和比例", 16);
+        heading.Margin = new Thickness(0, 0, 0, 7);
         fields.Children.Add(heading);
 
         displayedWidth = theme.Width;
@@ -68,7 +88,7 @@ internal sealed class SettingsWindow : Window
         fields.Children.Add(sizeLockHint);
         FollowWindowGeometry(preferences);
 
-        var appearance = Ui.Heading("颜色和文字", 18);
+        var appearance = Ui.Heading("颜色和文字", 16);
         appearance.Margin = new Thickness(0, 13, 0, 1);
         fields.Children.Add(appearance);
         accent = ColorField("主色", theme.Accent);
@@ -87,24 +107,36 @@ internal sealed class SettingsWindow : Window
         {
             Content = "登录 Windows 后自动显示便签",
             IsChecked = startWithWindows,
-            Margin = new Thickness(0, 13, 0, 9),
             VerticalContentAlignment = VerticalAlignment.Center
         };
         startup.SetResourceReference(Control.ForegroundProperty, "InkBrush");
-        fields.Children.Add(startup);
+        general.Children.Add(startup);
+
+        workingDirectory = AddWorkingDirectory(data, currentDirectory, defaultDirectory);
+        var dataActions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        dataActions.Children.Add(Ui.Button("打开数据文件夹", openFolder));
+        dataActions.Children.Add(Ui.Button("打开任务文件", openTasks));
+        data.Children.Add(dataActions);
+        about.Children.Add(Ui.Heading("HanLin-ToDo", 19));
+        string? version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3);
+        about.Children.Add(Ui.Text($"版本 {version}", 13, "MutedBrush"));
+        about.Children.Add(new TextBlock
+        {
+            Text = "Ctrl+Alt+T   新建待办\nCtrl+F   搜索待办\nCtrl+,   打开设置", Margin = new Thickness(0, 12, 0, 0)
+        });
 
         message.TextWrapping = TextWrapping.Wrap;
         message.Visibility = Visibility.Collapsed;
-        message.Margin = new Thickness(0, 0, 0, 7);
-        fields.Children.Add(message);
-
-        var buttons = new DockPanel { Margin = new Thickness(20, 3, 20, 13) };
-        var open = Ui.Button("打开任务文件", openTasks);
-        DockPanel.SetDock(open, Dock.Left);
-        buttons.Children.Add(open);
+        message.Margin = new Thickness(0, 0, 12, 0);
+        message.VerticalAlignment = VerticalAlignment.Center;
+        var buttons = new DockPanel { Margin = new Thickness(20, 12, 20, 14) };
         var saveButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var cancel = Ui.Button("取消", Close);
         cancel.IsCancel = true;
+        cancel.MinWidth = 84;
+        cancel.Height = 36;
+        cancel.Margin = new Thickness(0, 0, 8, 0);
+        cancel.SetResourceReference(Control.BorderBrushProperty, "EdgeBrush");
         saveButtons.Children.Add(cancel);
         var apply = Ui.Button("保存", () =>
         {
@@ -145,17 +177,61 @@ internal sealed class SettingsWindow : Window
                 ShowError(error);
         }, primary: true);
         apply.IsDefault = true;
+        apply.MinWidth = 84;
+        apply.Height = 36;
         saveButtons.Children.Add(apply);
+        DockPanel.SetDock(saveButtons, Dock.Right);
         buttons.Children.Add(saveButtons);
+        buttons.Children.Add(message);
         DockPanel.SetDock(buttons, Dock.Bottom);
         frame.Children.Add(buttons);
-        frame.Children.Add(new ScrollViewer { Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        frame.Children.Add(tabs);
+        Loaded += (_, _) => (tabs.SelectedItem as TabItem)?.Focus();
     }
 
-    private TextBox AddWorkingDirectory(string currentDirectory, string? defaultDirectory)
+    private Border CreateHeader()
     {
-        fields.Children.Add(Ui.Heading("工作目录", 20));
-        var input = Ui.Input("工作目录", currentDirectory);
+        var caption = new DockPanel { Height = 45, Margin = new Thickness(18, 0, 10, 0) };
+        var close = Ui.Button("关闭", Close, "close");
+        close.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(close, Dock.Right);
+        caption.Children.Add(close);
+        var icon = new Image { Source = Ui.AppIcon(32), Width = 26, Height = 26, Margin = new Thickness(0, 0, 8, 0) };
+        caption.Children.Add(icon);
+        var title = Ui.Heading("设置", 18);
+        title.VerticalAlignment = VerticalAlignment.Center;
+        caption.Children.Add(title);
+        var header = new Border { Child = caption, CornerRadius = new(9, 9, 0, 0), BorderThickness = new(0, 0, 0, 1) };
+        header.SetResourceReference(Border.BackgroundProperty, "HeaderBrush");
+        header.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
+        header.MouseLeftButtonDown += (_, args) =>
+        {
+            if (Mouse.LeftButton == MouseButtonState.Pressed)
+            {
+                args.Handled = true;
+                DragMove();
+            }
+        };
+        return header;
+    }
+
+    private static StackPanel SectionContent() => new() { Margin = new Thickness(0, 16, 4, 8) };
+
+    private static void AddSection(TabControl tabs, string name, StackPanel fields)
+    {
+        var item = new TabItem
+        {
+            Header = name,
+            Content = new ScrollViewer { Content = fields, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+        };
+        item.SetResourceReference(StyleProperty, "SettingsTab");
+        tabs.Items.Add(item);
+    }
+
+    private TextBox AddWorkingDirectory(StackPanel data, string currentDirectory, string? defaultDirectory)
+    {
+        data.Children.Add(Ui.Text("数据文件夹", 13, "MutedBrush"));
+        var input = Ui.Input("数据文件夹", currentDirectory);
         input.IsReadOnly = defaultDirectory is null;
         input.ToolTip = "存放 todo.md 的文件夹";
         var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
@@ -177,12 +253,12 @@ internal sealed class SettingsWindow : Window
             row.Children.Add(choose);
         }
         row.Children.Add(input);
-        fields.Children.Add(row);
+        data.Children.Add(row);
         var help = Ui.Text(defaultDirectory is null ? "由启动参数指定。"
             : "已有 todo.md 时直接读取，否则复制当前任务文件。", 12, "MutedBrush");
         help.TextWrapping = TextWrapping.Wrap;
         help.Margin = new Thickness(0, 4, 0, 0);
-        fields.Children.Add(help);
+        data.Children.Add(help);
         return input;
     }
 
