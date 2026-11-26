@@ -1,13 +1,19 @@
 # 寒淋待办 · HanLin-ToDo
 
-HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻桌面层，按 Win + D 后依然可见；任务直接读写本地 Markdown 文件，支持截止日期、提醒、重复、标签、步骤和附件。
+<img src="docs/icon.png" width="72" height="72" alt="寒淋待办的「办」字图标">
+
+一个 Windows 本地待办便签：**数据全在本机，不需要账号，不联网**。
+
+HanLin-ToDo 是嵌在 Windows 桌面上的 Markdown 待办清单。便签常驻桌面层，按 Win + D 后依然可见；任务直接读写本地 Markdown 文件，支持截止日期、提醒、重复、标签、步骤和附件。界面采用 HanLin 系列的暖白、珊瑚红配色。[HanLin 系列设计规范](docs/HANLIN-SERIES.md)
+
+> 任务文件是普通 Markdown，任何编辑器都能打开和备份。
 
 | | |
 | --- | --- |
 | 版本 | `1.1.0` |
 | 运行环境 | Windows 10 / 11 x64，.NET 10 自包含单文件 |
 | 发布产物 | `HanLin-ToDo-Setup-<版本>.exe`（安装包）、`HanLin-ToDo.exe`（便携单文件） |
-| 许可证 | 未声明（仓库暂无 LICENSE 文件） |
+| 许可证 | 未声明（仓库暂无 LICENSE 文件）
 
 ## 目录
 
