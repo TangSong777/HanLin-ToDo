@@ -53,6 +53,8 @@ internal sealed partial class NoteView
         badge.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
+            if (selecting)
+                return;
             OpenAttachments(item, badge);
         };
         badge.ContextMenu = BuildAttachmentMenu(item, badge);
@@ -92,7 +94,8 @@ internal sealed partial class NoteView
             string path = AttachmentStore.FullPath(Workspace, file);
             bool exists = File.Exists(path);
             string name = file.Name;
-            MenuItem entry = Menu(name, exists ? () => OpenAttachment(path, name) : () => ShowNotice("找不到 " + name), icon: "file");
+            // 文件名里的下划线在菜单里是助记符，显示前需要转义。
+            MenuItem entry = Menu(name.Replace("_", "__"), exists ? () => OpenAttachment(path, name) : () => ShowNotice("找不到 " + name), icon: "file");
             if (!exists)
                 entry.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
             menu.Items.Add(entry);
@@ -163,7 +166,7 @@ internal sealed partial class NoteView
         if (item.Details.Files is not { Length: > 0 })
             return;
         DetailsRequested?.Invoke(item, details => details with { Files = null });
-        ShowNotice("已移除附件，副本仍保留在 Data/Attachments。");
+        ShowNotice("已移除附件，副本仍保留在 Attachments 文件夹。");
     }
 
     private void BrowseAttachments(TodoItem item)
