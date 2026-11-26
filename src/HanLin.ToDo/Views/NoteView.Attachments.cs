@@ -93,9 +93,11 @@ internal sealed partial class NoteView
         foreach (var file in files)
             menu.Items.Add(BuildAttachmentEntry(item, file, menu));
         menu.Items.Add(MenuDivider());
-        menu.Items.Add(Menu("在文件夹中显示", () => RevealAttachments(files), icon: "search"));
-        menu.Items.Add(Menu("复制文件路径", () => CopyAttachmentPaths(files), icon: "copy"));
-        menu.Items.Add(Menu("重新定位…", () => RelocateAttachment(item), icon: "pencil"));
+        var filesMenu = MenuBranch("文件操作", "search");
+        filesMenu.Items.Add(Menu("在文件夹中显示", () => RevealAttachments(files), icon: "search"));
+        filesMenu.Items.Add(Menu("复制文件路径", () => CopyAttachmentPaths(files), icon: "copy"));
+        filesMenu.Items.Add(Menu("重新定位…", () => RelocateAttachment(item), icon: "pencil"));
+        menu.Items.Add(filesMenu);
         menu.Items.Add(MenuDivider());
         menu.Items.Add(Menu("添加附件…", () => BrowseAttachments(item), icon: "plus"));
         var remove = Menu("移除全部附件…", () => RemoveAttachments(item), icon: "trash");
@@ -112,7 +114,7 @@ internal sealed partial class NoteView
         string name = file.Name;
 
         var label = Ui.Text(name, 13);
-        label.MaxWidth = 200;
+        label.MaxWidth = 160;
         label.TextTrimming = TextTrimming.CharacterEllipsis;
         if (!exists)
             label.SetResourceReference(TextBlock.ForegroundProperty, "OverdueBrush");
@@ -151,7 +153,8 @@ internal sealed partial class NoteView
         };
         AutomationProperties.SetName(close, "移除附件 " + name);
 
-        var header = new Grid { MinWidth = 190 };
+        // 负边距吃掉模板右侧的勾选列，让 ✕ 贴住菜单右缘。
+        var header = new Grid { MinWidth = 168, Margin = new Thickness(0, 0, -12, 0) };
         header.ColumnDefinitions.Add(new ColumnDefinition());
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.Children.Add(label);
@@ -231,25 +234,60 @@ internal sealed partial class NoteView
         TodoFile[] files = item.Details.Files ?? [];
         if (!files.Contains(file))
             return;
-        if (!ConfirmDialog.Ask(Window.GetWindow(this), "移除附件",
-                "要从这条待办里移除「" + file.Name + "」吗？\n\n副本仍保留在 Attachments 文件夹中。",
-                "移除"))
+        ConfirmChoice choice = ConfirmDialog.Ask(Window.GetWindow(this), "移除附件",
+                "要从这条待办里移除「" + file.Name + "」吗？\n\n不勾选时，副本仍保留在 Attachments 文件夹中。",
+                "移除", "同时删除复制过来的副本文件（移到回收站）");
+        if (!choice.Confirmed)
             return;
         TodoFile[] remaining = files.Where(other => other != file).ToArray();
         DetailsRequested?.Invoke(item, details => details with { Files = remaining.Length > 0 ? remaining : null });
-        ShowNotice("已移除附件「" + file.Name + "」。");
+        bool deleted = choice.DeleteFiles && DeleteAttachmentCopy(item, file);
+        ShowNotice(deleted ? "已移除附件「" + file.Name + "」，副本已移到回收站。" : "已移除附件「" + file.Name + "」。");
     }
 
     private void RemoveAttachments(TodoItem item)
     {
         if (item.Details.Files is not { Length: > 0 } files)
             return;
-        if (!ConfirmDialog.Ask(Window.GetWindow(this), "移除全部附件",
-                "要移除这条待办的全部 " + files.Length + " 个附件吗？\n\n副本仍保留在 Attachments 文件夹中。",
-                "全部移除"))
+        ConfirmChoice choice = ConfirmDialog.Ask(Window.GetWindow(this), "移除全部附件",
+                "要移除这条待办的全部 " + files.Length + " 个附件吗？\n\n不勾选时，副本仍保留在 Attachments 文件夹中。",
+                "全部移除", "同时删除复制过来的副本文件（移到回收站）");
+        if (!choice.Confirmed)
             return;
+        int deleted = 0;
+        if (choice.DeleteFiles)
+        {
+            foreach (TodoFile file in files)
+            {
+                if (DeleteAttachmentCopy(item, file))
+                    deleted++;
+            }
+        }
         DetailsRequested?.Invoke(item, details => details with { Files = null });
-        ShowNotice("已移除附件，副本仍保留在 Attachments 文件夹。");
+        ShowNotice(deleted > 0
+            ? "已移除 " + files.Length + " 个附件，其中 " + deleted + " 个副本已移到回收站。"
+            : choice.DeleteFiles ? "已移除附件，副本仍在 Attachments 文件夹中。" : "已移除附件。");
+    }
+
+    // 勾选删除时把副本移到回收站；副本仍被其他任务引用或已不存在时只解除本任务的记录。
+    private bool DeleteAttachmentCopy(TodoItem item, TodoFile file)
+    {
+        string path = AttachmentStore.FullPath(Workspace, file);
+        if (!File.Exists(path) || ReferencedByOtherTask(item, file))
+            return false;
+        return RecycleBin.Delete(path);
+    }
+
+    private bool ReferencedByOtherTask(TodoItem item, TodoFile file)
+    {
+        foreach (TodoItem other in snapshot.Items)
+        {
+            if (ReferenceEquals(other, item) || item.Details.Id is { } id && other.Details.Id == id)
+                continue;
+            if ((other.Details.Files ?? []).Any(candidate => string.Equals(candidate.RelativePath, file.RelativePath, StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
     }
 
     private void BrowseAttachments(TodoItem item)
