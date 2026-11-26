@@ -91,26 +91,90 @@ internal sealed partial class NoteView
         var menu = CreateMenu();
         var files = item.Details.Files ?? [];
         foreach (var file in files)
-        {
-            string path = AttachmentStore.FullPath(Workspace, file);
-            bool exists = File.Exists(path);
-            string name = file.Name;
-            // 文件名里的下划线在菜单里是助记符，显示前需要转义。
-            MenuItem entry = Menu(name.Replace("_", "__"), exists ? () => OpenAttachment(path, name) : () => ShowNotice("找不到 " + name), icon: "file");
-            if (!exists)
-                entry.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
-            menu.Items.Add(entry);
-        }
+            menu.Items.Add(BuildAttachmentEntry(item, file, menu));
         menu.Items.Add(MenuDivider());
         menu.Items.Add(Menu("在文件夹中显示", () => RevealAttachments(files), icon: "search"));
         menu.Items.Add(Menu("复制文件路径", () => CopyAttachmentPaths(files), icon: "copy"));
         menu.Items.Add(Menu("重新定位…", () => RelocateAttachment(item), icon: "pencil"));
         menu.Items.Add(MenuDivider());
         menu.Items.Add(Menu("添加附件…", () => BrowseAttachments(item), icon: "plus"));
-        var remove = Menu("移除附件", () => RemoveAttachments(item), icon: "trash");
+        var remove = Menu("移除全部附件…", () => RemoveAttachments(item), icon: "trash");
         remove.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
         menu.Items.Add(remove);
         return menu;
+    }
+
+    // 附件行右侧自带删除按钮：只移除这一条，且先弹自绘确认框。
+    private MenuItem BuildAttachmentEntry(TodoItem item, TodoFile file, ContextMenu menu)
+    {
+        string path = AttachmentStore.FullPath(Workspace, file);
+        bool exists = File.Exists(path);
+        string name = file.Name;
+
+        var label = Ui.Text(name, 13);
+        label.MaxWidth = 200;
+        label.TextTrimming = TextTrimming.CharacterEllipsis;
+        if (!exists)
+            label.SetResourceReference(TextBlock.ForegroundProperty, "OverdueBrush");
+
+        var closeIcon = (System.Windows.Shapes.Path)Ui.Glyph("close");
+        closeIcon.Width = 11;
+        closeIcon.Height = 11;
+        var close = new Border
+        {
+            Width = 22,
+            Height = 22,
+            CornerRadius = new CornerRadius(5),
+            Background = Brushes.Transparent,
+            Child = closeIcon,
+            Cursor = Cursors.Hand,
+            ToolTip = "移除这个附件",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0)
+        };
+        close.MouseEnter += (_, _) =>
+        {
+            close.SetResourceReference(Border.BackgroundProperty, "HoverBrush");
+            closeIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "OverdueBrush");
+        };
+        close.MouseLeave += (_, _) =>
+        {
+            close.Background = Brushes.Transparent;
+            closeIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "MutedBrush");
+        };
+        close.MouseLeftButtonDown += (_, args) => args.Handled = true;
+        close.MouseLeftButtonUp += (_, args) =>
+        {
+            args.Handled = true;
+            menu.IsOpen = false;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => RemoveAttachment(item, file)));
+        };
+        AutomationProperties.SetName(close, "移除附件 " + name);
+
+        var header = new Grid { MinWidth = 190 };
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(label);
+        Grid.SetColumn(close, 1);
+        header.Children.Add(close);
+
+        MenuItem entry = new()
+        {
+            Header = header,
+            Icon = Ui.Glyph("file"),
+            Style = (Style)Application.Current.FindResource("SoftMenuItem")
+        };
+        if (!exists && entry.Icon is System.Windows.Shapes.Path missing)
+            missing.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "OverdueBrush");
+        entry.Click += (_, _) =>
+        {
+            if (File.Exists(path))
+                OpenAttachment(path, name);
+            else
+                ShowNotice("找不到 " + name);
+        };
+        AutomationProperties.SetName(entry, name);
+        return entry;
     }
 
     private void OpenAttachment(string path, string name)
@@ -162,9 +226,27 @@ internal sealed partial class NoteView
         }
     }
 
+    private void RemoveAttachment(TodoItem item, TodoFile file)
+    {
+        TodoFile[] files = item.Details.Files ?? [];
+        if (!files.Contains(file))
+            return;
+        if (!ConfirmDialog.Ask(Window.GetWindow(this), "移除附件",
+                "要从这条待办里移除「" + file.Name + "」吗？\n\n副本仍保留在 Attachments 文件夹中。",
+                "移除"))
+            return;
+        TodoFile[] remaining = files.Where(other => other != file).ToArray();
+        DetailsRequested?.Invoke(item, details => details with { Files = remaining.Length > 0 ? remaining : null });
+        ShowNotice("已移除附件「" + file.Name + "」。");
+    }
+
     private void RemoveAttachments(TodoItem item)
     {
-        if (item.Details.Files is not { Length: > 0 })
+        if (item.Details.Files is not { Length: > 0 } files)
+            return;
+        if (!ConfirmDialog.Ask(Window.GetWindow(this), "移除全部附件",
+                "要移除这条待办的全部 " + files.Length + " 个附件吗？\n\n副本仍保留在 Attachments 文件夹中。",
+                "全部移除"))
             return;
         DetailsRequested?.Invoke(item, details => details with { Files = null });
         ShowNotice("已移除附件，副本仍保留在 Attachments 文件夹。");

@@ -9,3 +9,4 @@
 - 2026-11-26 · 功能 · 快速录入框按 Tab 直接展开日历，方向键选日期，Enter 确认后回到输入框 · 与 Ctrl+Alt+T 录入窗口的 Tab 行为对齐 · `NoteView.Tasks.cs`
 - 2026-11-26 · 体验 · 统一动效：任务行入场、完成与置顶反馈、通知与撤销条滑入滑出、附件徽标弹入、附件拖放高亮渐显、右键菜单淡入；拖拽预览加阴影与轻微抬升，插入线淡入，靠近边缘时自动滚动加速 · 让状态变化可感知、拖动落点更清楚 · `Ui.cs` 新增动效工具，`NoteView.cs`、`NoteView.Tasks.cs`、`NoteView.Attachments.cs`、`NoteView.Reorder.cs`
 
+- 2026-11-26 · 界面 · 附件右键菜单每个附件行右侧加「✕」移除按钮（自绘，悬停变珊瑚红），只移除单个附件并弹自绘确认框；「移除全部附件…」也先确认；副本仍保留在 Attachments 文件夹 · 误点不再直接清空全部附件，避免误删 · `NoteView.Attachments.cs`、新增 `ConfirmDialog.cs`
