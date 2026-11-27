@@ -17,6 +17,7 @@ internal sealed partial class NoteView
 {
     private sealed record TaskRow(Border Face, Thumb? Handle, Border Feedback, CheckBox Check);
     private readonly record struct DropLocation(TodoItem Item, bool After);
+    private const int ReorderMotionMs = 160;
     private sealed record TaskDragPreview(
         Grid Ghost, TranslateTransform Position, TodoItem[] Group, int OriginalIndex, double RowHeight);
 
@@ -26,6 +27,7 @@ internal sealed partial class NoteView
     private TodoItem? draggedTask;
     private TaskDragPreview? taskDragPreview;
     private DropLocation? dropLocation;
+    private int dragDestination;
     private Point dragOrigin;
     private Vector dragGrabOffset;
 
@@ -89,6 +91,7 @@ internal sealed partial class NoteView
                 Math.Abs(cursor.Y - dragOrigin.Y) < SystemParameters.MinimumVerticalDragDistance)
                 return;
             preview = taskDragPreview = CreateTaskDragPreview(item, source.Face);
+            dragDestination = preview.OriginalIndex;
             taskDragLayer.Children.Insert(0, preview.Ghost);
             Ui.Fade(source.Face, source.Face.Opacity, 0, Ui.FastMotion);
             taskReorderTimer.Start();
@@ -226,13 +229,19 @@ internal sealed partial class NoteView
             int slot = Array.IndexOf(preview.Group, target.Item) + (target.After ? 1 : 0);
             destination = slot - (slot > origin ? 1 : 0);
         }
-        for (int i = 0; i < preview.Group.Length; i++)
+        int previous = dragDestination;
+        dragDestination = destination;
+        if (previous == destination)
+            return;
+        bool animate = Ui.MotionEnabled;
+        // Only the rows between the two destinations change their offsets.
+        for (int i = Math.Min(previous, destination); i <= Math.Max(previous, destination); i++)
         {
             if (i == origin)
                 continue;
             double shift = i >= destination && i < origin ? preview.RowHeight
                 : i > origin && i <= destination ? -preview.RowHeight : 0;
-            ShiftRow(taskRows[preview.Group[i]].Face, shift, animate: true);
+            ShiftRow(taskRows[preview.Group[i]].Face, shift, animate);
         }
     }
 
@@ -246,14 +255,14 @@ internal sealed partial class NoteView
             row.RenderTransform = shift;
         }
         double start = from ?? shift.Y;
-        if (animate && Ui.MotionEnabled)
+        if (animate)
         {
             if (from is null && Math.Abs(((double)shift.GetAnimationBaseValue(TranslateTransform.YProperty)) - to) < 0.1)
                 return;
             shift.Y = to;
-            shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(start, to, TimeSpan.FromMilliseconds(170))
+            shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(start, to, TimeSpan.FromMilliseconds(ReorderMotionMs))
             {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
                 FillBehavior = FillBehavior.Stop
             });
         }
@@ -274,8 +283,9 @@ internal sealed partial class NoteView
         {
             taskDragLayer.Children.Remove(preview.Ghost);
             taskDragPreview = null;
+            bool animate = animateReset && Ui.MotionEnabled;
             foreach (var peer in preview.Group)
-                ShiftRow(taskRows[peer].Face, 0, animateReset);
+                ShiftRow(taskRows[peer].Face, 0, animate);
             if (row is not null)
             {
                 Ui.Fade(row.Face, row.Face.Opacity, 1, animateReset ? Ui.FastMotion : 0);
