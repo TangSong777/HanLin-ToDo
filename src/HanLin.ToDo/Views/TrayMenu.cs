@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using Drawing = System.Drawing;
@@ -11,6 +12,9 @@ namespace HanLin.ToDo;
 
 internal sealed class TrayMenu : Forms.ContextMenuStrip
 {
+    private const float OuterRadius = 8;
+    private const float ItemRadius = 5;
+    private const int DpiChanged = 0x02E0;
     private readonly Drawing.Font menuFont = new("Microsoft YaHei UI", 9f);
     private readonly Drawing.Bitmap imageSlot = new(16, 16);
 
@@ -47,6 +51,7 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
 
     protected override void OnOpened(EventArgs e)
     {
+        UpdateOutline();
         base.OnOpened(e);
         if (!Forms.SystemInformation.HighContrast && Forms.SystemInformation.IsMenuAnimationEnabled && Ui.MotionEnabled)
         {
@@ -66,10 +71,23 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
+        UpdateOutline();
+    }
+
+    protected override void WndProc(ref Forms.Message message)
+    {
+        base.WndProc(ref message);
+        if (message.Msg == DpiChanged) UpdateOutline();
+    }
+
+    private void UpdateOutline()
+    {
         if (ClientSize.Width < 2 || ClientSize.Height < 2)
             return;
-        using var outline = Rounded(ClientRectangle, 8 * DpiScale(this));
+        using var outline = Rounded(ClientRectangle, OuterRadius * DpiScale(this));
+        var previous = Region;
         Region = new Drawing.Region(outline);
+        previous?.Dispose();
     }
 
     protected override void Dispose(bool disposing)
@@ -83,13 +101,24 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
         }
     }
 
-    private static float DpiScale(Forms.ToolStrip? strip) => (strip?.DeviceDpi ?? 96) / 96f;
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr window);
+
+    private static float DpiScale(Forms.ToolStrip? strip)
+    {
+        uint dpi = strip is { IsHandleCreated: true } ? GetDpiForWindow(strip.Handle) : 0;
+        return dpi > 0 ? dpi / 96f : 1f;
+    }
 
     private static Drawing2D.GraphicsPath Rounded(Drawing.RectangleF bounds, float radius)
     {
         var path = new Drawing2D.GraphicsPath();
-        float corner = Math.Min(radius, Math.Min(bounds.Width, bounds.Height) / 2);
-        path.AddRoundedRectangle(bounds, new Drawing.SizeF(corner, corner));
+        float diameter = Math.Min(2 * radius, Math.Min(bounds.Width, bounds.Height));
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
         return path;
     }
 
@@ -114,9 +143,11 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
             var bounds = e.ToolStrip.ClientRectangle;
             if (bounds.Width < 2 || bounds.Height < 2)
                 return;
-            using var outline = Rounded(new Drawing.RectangleF(0.5f, 0.5f, bounds.Width - 1, bounds.Height - 1),
-                8 * DpiScale(e.ToolStrip));
-            using var pen = new Drawing.Pen(Color("EdgeBrush", Drawing.SystemColors.WindowFrame));
+            float scale = DpiScale(e.ToolStrip);
+            float inset = scale / 2;
+            using var outline = Rounded(new Drawing.RectangleF(inset, inset, bounds.Width - scale, bounds.Height - scale),
+                OuterRadius * scale - inset);
+            using var pen = new Drawing.Pen(Color("EdgeBrush", Drawing.SystemColors.WindowFrame), scale);
             e.Graphics.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias;
             e.Graphics.DrawPath(pen, outline);
         }
@@ -129,7 +160,7 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
             var bounds = new Drawing.RectangleF(2 * scale, scale, e.Item.Width - 4 * scale, e.Item.Height - 2 * scale);
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 return;
-            using var highlight = Rounded(bounds, 5 * scale);
+            using var highlight = Rounded(bounds, ItemRadius * scale);
             using var fill = new Drawing.SolidBrush(Color(e.Item.Pressed ? "PressBrush" : "HoverBrush",
                 Drawing.SystemColors.Highlight));
             e.Graphics.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias;
