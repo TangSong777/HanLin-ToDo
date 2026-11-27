@@ -31,19 +31,12 @@ internal sealed class TaskEditor : Border
     private string hintText = "";
 
     public TaskEditor(TodoDraft draft, Func<TodoDraft, string?> save, Action cancel,
-        bool isCaptureWindow = false, string workspace = "")
+        string workspace, bool expandDetails)
     {
         this.save = save;
         this.cancel = cancel;
         string name = draft.Title;
         TodoDeadline? due = draft.Due;
-        if (!isCaptureWindow)
-        {
-            CornerRadius = new CornerRadius(8);
-            Padding = new Thickness(9);
-            Margin = new Thickness(0, 3, 0, 4);
-            SetResourceReference(BackgroundProperty, "TintBrush");
-        }
         TextElement.SetFontSize(this, 13);
         SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
 
@@ -94,7 +87,9 @@ internal sealed class TaskEditor : Border
         {
             Header = Ui.Heading("任务详情", 13),
             Content = detailsEditor,
-            Margin = new Thickness(0, 6, 0, 0)
+            IsExpanded = expandDetails,
+            Margin = new Thickness(0, 10, 0, 0),
+            Style = (Style)Application.Current.FindResource("SoftDetailsExpander")
         };
         details.AutomationName("任务详情");
         fields.Children.Add(details);
@@ -139,26 +134,15 @@ internal sealed class TaskEditor : Border
         var cancelButton = Ui.Button("取消", cancel);
         buttons.Children.Add(cancelButton);
         buttons.Children.Add(Ui.Button("保存", Commit, primary: true));
-        if (isCaptureWindow)
-        {
-            taskLabel.Margin = new Thickness(0, 0, 0, 5);
-            title.MinHeight = 36;
-            scheduleLabel.Margin = new Thickness(0, 9, 0, 3);
-            date.MinHeight = time.MinHeight = 34;
-            details.Margin = new Thickness(0, 10, 0, 0);
-            details.Style = (Style)Application.Current.FindResource("SoftDetailsExpander");
-            cancelButton.Margin = new Thickness(0, 0, 6, 0);
-            Child = CreateCaptureForm(fields, buttons);
-            hintText = "Tab 选日期，Enter 确认，再按 Enter 保存";
-            ResetHint();
-            title.PreviewKeyDown += OpenKeyboardCalendar;
-        }
-        else
-        {
-            fields.Children.Add(error);
-            fields.Children.Add(buttons);
-            Child = fields;
-        }
+        taskLabel.Margin = new Thickness(0, 0, 0, 5);
+        title.MinHeight = 36;
+        scheduleLabel.Margin = new Thickness(0, 9, 0, 3);
+        date.MinHeight = time.MinHeight = 34;
+        cancelButton.Margin = new Thickness(0, 0, 6, 0);
+        Child = CreateCaptureForm(fields, buttons);
+        hintText = "Tab 选日期，Enter 确认，再按 Enter 保存";
+        ResetHint();
+        title.PreviewKeyDown += OpenKeyboardCalendar;
         KeyDown += OnKey;
     }
 
@@ -338,10 +322,12 @@ internal sealed class CaptureWindow : Window
 {
     private readonly TaskEditor editor;
 
-    public CaptureWindow(NoteTheme theme, Func<TodoDraft, string?> save, string workspace = "")
+    public CaptureWindow(NoteTheme theme, Func<TodoDraft, string?> save, string workspace = "", TodoDraft? draft = null)
     {
+        bool editing = draft is not null;
+        string caption = editing ? "编辑待办" : "新建待办";
         Ui.ConfigureText(this);
-        Title = "HanLin-ToDo · 新建待办";
+        Title = "HanLin-ToDo · " + caption;
         FontFamily = Ui.Resolve(theme.Font);
         Icon = Ui.AppIcon();
         Width = 402;
@@ -354,14 +340,14 @@ internal sealed class CaptureWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = false;
         Topmost = true;
-        editor = new TaskEditor(new TodoDraft("", null, new()), task =>
+        editor = new TaskEditor(draft ?? new TodoDraft("", null, new()), task =>
         {
             string? error = save(task);
             if (error is null)
                 Close();
             return error;
-        }, Close, isCaptureWindow: true, workspace: workspace);
-        Content = CreateFrame(theme);
+        }, Close, workspace, editing);
+        Content = CreateFrame(theme, caption, editing ? "pencil" : "plus");
         ContentRendered += (_, _) => FocusEditor();
         SizeChanged += (_, args) =>
         {
@@ -377,7 +363,7 @@ internal sealed class CaptureWindow : Window
         };
     }
 
-    private Grid CreateFrame(NoteTheme theme)
+    private Grid CreateFrame(NoteTheme theme, string title, string icon)
     {
         var frame = new Grid { Margin = new Thickness(NoteView.ShadowMargin) };
         var corners = new CornerRadius(theme.Radius);
@@ -392,7 +378,7 @@ internal sealed class CaptureWindow : Window
         frame.Children.Add(shadow);
 
         var layout = new DockPanel();
-        var header = CreateHeader(theme);
+        var header = CreateHeader(theme, title, icon);
         DockPanel.SetDock(header, Dock.Top);
         layout.Children.Add(header);
         layout.Children.Add(editor);
@@ -404,24 +390,24 @@ internal sealed class CaptureWindow : Window
         return frame;
     }
 
-    private Border CreateHeader(NoteTheme theme)
+    private Border CreateHeader(NoteTheme theme, string title, string icon)
     {
         var caption = new DockPanel { Height = 46, Margin = new Thickness(14, 0, 8, 0) };
-        var close = Ui.Button("关闭新建窗口", Close, "close");
+        var close = Ui.Button("关闭" + title + "窗口", Close, "close");
         close.VerticalAlignment = VerticalAlignment.Center;
         DockPanel.SetDock(close, Dock.Right);
         caption.Children.Add(close);
 
         var glyph = new Border
         {
-            Child = Ui.Glyph("plus"),
+            Child = Ui.Glyph(icon),
             Width = 25, Height = 25, CornerRadius = new CornerRadius(7),
             Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center
         };
         glyph.SetResourceReference(Border.BackgroundProperty, "TintBrush");
         DockPanel.SetDock(glyph, Dock.Left);
         caption.Children.Add(glyph);
-        var heading = Ui.Heading("新建待办", theme.Size + 3);
+        var heading = Ui.Heading(title, theme.Size + 3);
         heading.VerticalAlignment = VerticalAlignment.Center;
         caption.Children.Add(heading);
 

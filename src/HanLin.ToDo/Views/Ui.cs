@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
@@ -11,6 +12,7 @@ namespace HanLin.ToDo;
 
 internal static class Ui
 {
+    public const int FastMotion = 130;
     private static readonly Lazy<FontFamily?> YueHei = new(() => Fonts.SystemFontFamilies.FirstOrDefault(family =>
         family.Source is "MF YueHei (Noncommercial)" or "造字工房悦黑（非商用）"));
 
@@ -19,6 +21,9 @@ internal static class Ui
     public static FontFamily Resolve(string font) =>
         font == NoteFonts.YueHei ? YueHei.Value ?? new FontFamily(NoteFonts.YaHei) : new FontFamily(font);
     public static bool MotionEnabled => SystemParameters.ClientAreaAnimation && SystemParameters.UIEffects;
+
+    /// <summary>主题每换一次就 +1；缓存下来的样式/画刷据此判断是否失效。</summary>
+    public static int ThemeVersion { get; private set; }
 
     public static void SetTheme(NoteTheme theme, ResourceDictionary? palette = null)
     {
@@ -54,6 +59,10 @@ internal static class Ui
         resources["AccentPressBrush"] = Brush(Mix(accent, ink, 0.14));
         resources["EdgeBrush"] = Brush(Mix(surface, ink, 0.15));
         resources["LineBrush"] = Brush(Mix(surface, ink, 0.07));
+        resources["TipSurfaceBrush"] = SystemParameters.HighContrast ? SystemColors.InfoBrush : resources["SurfaceBrush"];
+        resources["TipInkBrush"] = SystemParameters.HighContrast ? SystemColors.InfoTextBrush : resources["InkBrush"];
+        resources["TipEdgeBrush"] = SystemParameters.HighContrast ? SystemColors.InfoTextBrush : resources["EdgeBrush"];
+        ++ThemeVersion;
     }
 
     public static void ConfigureText(FrameworkElement root)
@@ -79,13 +88,9 @@ internal static class Ui
         var fade = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(durationMs))
         {
             EasingFunction = easing ?? new CubicEase { EasingMode = EasingMode.EaseOut },
-            FillBehavior = FillBehavior.HoldEnd
+            FillBehavior = FillBehavior.Stop
         };
-        fade.Completed += (_, _) =>
-        {
-            element.BeginAnimation(UIElement.OpacityProperty, null);
-            element.Opacity = to;
-        };
+        element.Opacity = to;
         element.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
@@ -312,8 +317,24 @@ internal static class Ui
         return path;
     }
 
-    public static Geometry GlyphGeometry(string icon) =>
-        Geometry.Parse(icon switch
+    // 任务列表每行都会建图标；几何字符串解析不便宜，缓存并冻结后可跨元素共享同一个 Geometry。
+    private static readonly Dictionary<string, Geometry> GlyphCache = new();
+
+    public static Geometry GlyphGeometry(string icon)
+    {
+        lock (GlyphCache)
+        {
+            if (GlyphCache.TryGetValue(icon, out var cached))
+                return cached;
+            var geometry = Geometry.Parse(GlyphData(icon));
+            geometry.Freeze();
+            GlyphCache[icon] = geometry;
+            return geometry;
+        }
+    }
+
+    private static string GlyphData(string icon) =>
+        icon switch
         {
             "plus" => "M 2,7 H 12 M 7,2 V 12",
             "lock" => "M 4,6 V 4 A 3,3 0 0 1 10,4 V 6 M 2.5,6 H 11.5 V 12.5 H 2.5 Z",
@@ -335,7 +356,7 @@ internal static class Ui
             "exit" => "M 6,2 H 2.5 V 12 H 6 M 5,7 H 12 M 9.5,4.5 L 12,7 L 9.5,9.5",
             "chevron" => "M 3,5 L 7,9 L 11,5",
             _ => throw new ArgumentOutOfRangeException(nameof(icon))
-        });
+        };
 
     public static TextBox Input(string label, string text = "")
     {

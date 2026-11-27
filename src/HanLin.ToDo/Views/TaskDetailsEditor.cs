@@ -34,7 +34,10 @@ internal sealed class TaskDetailsEditor : StackPanel
     private readonly TextBlock notice = Ui.Text("", 12, "OverdueBrush");
     private bool invalidReminder;
 
-    private sealed record RepeatOption(TaskRepeat Kind, string Label);
+    private sealed record RepeatOption(TaskRepeat Kind, string Label)
+    {
+        public override string ToString() => Label;
+    }
 
     private static readonly RepeatOption[] Repeats =
     [
@@ -56,7 +59,8 @@ internal sealed class TaskDetailsEditor : StackPanel
         repeat = new ComboBox
         {
             ItemsSource = Repeats, DisplayMemberPath = nameof(RepeatOption.Label),
-            SelectedValuePath = nameof(RepeatOption.Kind), SelectedValue = details.Repeat, MinHeight = 27
+            SelectedValuePath = nameof(RepeatOption.Kind), SelectedValue = details.Repeat,
+            Style = (Style)Application.Current.FindResource("SoftChoice")
         };
         repeat.AutomationName("重复");
         repeatInterval = Ui.Input("重复间隔", Math.Max(1, details.RepeatInterval).ToString(CultureInfo.InvariantCulture));

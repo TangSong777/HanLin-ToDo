@@ -8,12 +8,13 @@ using System.Windows.Media.Effects;
 
 namespace HanLin.ToDo;
 
-// 自绘的二次确认框：圆角卡片、暖白表面，Enter 确认、Esc 取消。
+// 自绘二次确认框，默认焦点落在取消按钮。
 internal sealed class ConfirmDialog : Window
 {
     private readonly CheckBox? deleteCopy;
 
-    private ConfirmDialog(string title, string message, string confirmLabel, string? checkLabel)
+    private ConfirmDialog(string title, string message, string confirmLabel, string? checkLabel,
+        string? filename = null, Func<string, string?>? rename = null)
     {
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -30,6 +31,17 @@ internal sealed class ConfirmDialog : Window
         body.TextWrapping = TextWrapping.Wrap;
         body.MaxWidth = 340;
         body.Margin = new Thickness(0, 8, 0, 0);
+        var input = filename is null ? null : Ui.Input("新文件名", filename);
+        if (input is not null)
+        {
+            input.Width = 340;
+            input.MaxLength = 255;
+            input.Margin = new Thickness(0, 10, 0, 0);
+        }
+        var error = Ui.Text("", 12, "OverdueBrush");
+        error.TextWrapping = TextWrapping.Wrap;
+        error.MaxWidth = 340;
+        error.Visibility = Visibility.Collapsed;
 
         FrameworkElement? checkRow = null;
         CheckBox? check = null;
@@ -43,13 +55,12 @@ internal sealed class ConfirmDialog : Window
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center
             };
+            System.Windows.Automation.AutomationProperties.SetName(check, checkLabel);
             var text = Ui.Text(checkLabel, 12, "MutedBrush");
             text.TextWrapping = TextWrapping.Wrap;
             text.MaxWidth = 300;
             text.Cursor = Cursors.Hand;
             text.VerticalAlignment = VerticalAlignment.Center;
-            // 中文字形视觉重心略低，上移 1px 与方框居中对齐。
-            text.RenderTransform = new TranslateTransform(0, -1);
             text.MouseLeftButtonUp += (_, args) =>
             {
                 args.Handled = true;
@@ -71,10 +82,29 @@ internal sealed class ConfirmDialog : Window
 
         var cancel = Ui.Button("取消", () => DialogResult = false);
         cancel.MinWidth = 76;
-        var confirm = Ui.Button(confirmLabel, () => DialogResult = true);
+        cancel.IsDefault = rename is null;
+        cancel.SetResourceReference(Control.BorderBrushProperty, "EdgeBrush");
+        var confirm = Ui.Button(confirmLabel, () =>
+        {
+            string? reason = input is null ? null : rename?.Invoke(input.Text.Trim());
+            if (reason is null)
+                DialogResult = true;
+            else
+            {
+                error.Text = reason;
+                error.Visibility = Visibility.Visible;
+                input?.Focus();
+            }
+        });
         confirm.MinWidth = 76;
         confirm.Margin = new Thickness(8, 0, 0, 0);
-        confirm.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
+        confirm.IsDefault = rename is not null;
+        if (rename is null)
+        {
+            confirm.Tag = "Danger";
+            confirm.SetResourceReference(Control.BackgroundProperty, "TintBrush");
+            confirm.SetResourceReference(Control.ForegroundProperty, "OverdueBrush");
+        }
 
         var buttons = new StackPanel
         {
@@ -88,6 +118,11 @@ internal sealed class ConfirmDialog : Window
         var stack = new StackPanel();
         stack.Children.Add(heading);
         stack.Children.Add(body);
+        if (input is not null)
+        {
+            stack.Children.Add(input);
+            stack.Children.Add(error);
+        }
         if (checkRow is not null)
             stack.Children.Add(checkRow);
         stack.Children.Add(buttons);
@@ -121,16 +156,17 @@ internal sealed class ConfirmDialog : Window
                 args.Handled = true;
                 DialogResult = false;
             }
-            else if (args.Key == Key.Enter)
-            {
-                args.Handled = true;
-                DialogResult = true;
-            }
         };
         Loaded += (_, _) =>
         {
             Ui.Fade(this, 0, 1, 120);
-            cancel.Focus();
+            if (input is null)
+                cancel.Focus();
+            else
+            {
+                input.Focus();
+                input.Select(0, System.IO.Path.GetFileNameWithoutExtension(filename!).Length);
+            }
         };
     }
 
@@ -138,12 +174,24 @@ internal sealed class ConfirmDialog : Window
     public static ConfirmChoice Ask(Window? owner, string title, string message, string confirmLabel = "移除", string? checkLabel = null)
     {
         var dialog = new ConfirmDialog(title, message, confirmLabel, checkLabel);
+        Center(dialog, owner);
+        bool confirmed = dialog.ShowDialog() == true;
+        return new ConfirmChoice(confirmed, confirmed && dialog.deleteCopy?.IsChecked == true);
+    }
+
+    public static bool Rename(Window? owner, string filename, Func<string, string?> apply)
+    {
+        var dialog = new ConfirmDialog("重命名附件", "新名称会同步到引用此副本的所有待办。", "保存", null, filename, apply);
+        Center(dialog, owner);
+        return dialog.ShowDialog() == true;
+    }
+
+    private static void Center(Window dialog, Window? owner)
+    {
         if (owner is { IsVisible: true })
             dialog.Owner = owner;
         else
             dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        bool confirmed = dialog.ShowDialog() == true;
-        return new ConfirmChoice(confirmed, confirmed && dialog.deleteCopy?.IsChecked == true);
     }
 }
 

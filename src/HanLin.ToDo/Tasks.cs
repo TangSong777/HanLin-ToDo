@@ -157,6 +157,39 @@ internal sealed partial class TaskFile(string path)
     };
 
     public string Path { get; } = path;
+
+    private (DateTime Stamp, long Length)? lastSeen;
+    private int quietChecks;
+
+    /// <summary>
+    /// 定时刷新（每 2 秒）先比文件时间戳与大小：没变就不必读整份 todo.md、更不必重新解析。
+    /// 低精度时间戳或网络盘每 30 次（约 60 秒）强制读一次兜底。
+    /// </summary>
+    public bool HasChanged()
+    {
+        if (++quietChecks > 30)
+        {
+            quietChecks = 0;
+            return true;
+        }
+        try
+        {
+            var info = new FileInfo(Path);
+            if (!info.Exists)
+                return lastSeen is not null;
+            var stamp = (info.LastWriteTimeUtc, info.Length);
+            if (lastSeen == stamp)
+                return false;
+            lastSeen = stamp;
+            quietChecks = 0;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
     public TodoSnapshot Read(TodoSnapshot? known = null)
     {
         string text = ReadText();
@@ -323,6 +356,71 @@ internal sealed partial class TaskFile(string path)
 
     public static bool IsReminderDue(TodoItem item, DateTime now) =>
         !item.Done && !item.Details.ReminderSent && item.Details.Reminder is { } reminder && reminder <= now;
+
+    public static IEnumerable<TodoFile> AttachmentLinks(TodoSnapshot snapshot) =>
+        snapshot.Items.Concat(snapshot.Catalog.Deleted.Select(entry => ParseItem(MarkdownTask().Match(entry.Line))).OfType<TodoItem>())
+            .SelectMany(item => item.Details.Files ?? []);
+
+    public static bool ReferencesAttachment(TodoSnapshot snapshot, string workspace, string path) =>
+        AttachmentLinks(snapshot).Any(file => AttachmentStore.IsSameCopy(workspace, file, path));
+
+    public TodoSnapshot RenameAttachment(string workspace, TodoFile file, string name)
+    {
+        if (name.Length == 0 || name.EndsWith('.') || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
+            throw new IOException("附件名称无效，请输入有效的文件名。");
+        string oldPath = AttachmentStore.ManagedCopy(workspace, file)
+            ?? throw new IOException("附件副本已丢失或不在工作区内。");
+        var snapshot = Read();
+        if (!ReferencesAttachment(snapshot, workspace, oldPath))
+            throw new IOException("附件引用已发生变化，请重新打开菜单。");
+        string nextPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(oldPath)!, name);
+        if (string.Equals(oldPath, nextPath, StringComparison.Ordinal))
+            return snapshot;
+
+        bool caseOnly = string.Equals(oldPath, nextPath, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnly && (File.Exists(nextPath) || Directory.Exists(nextPath)))
+            throw new IOException("附件文件夹里已有同名文件。");
+
+        string relative = System.IO.Path.GetRelativePath(workspace, nextPath);
+        string Rewrite(TodoItem item)
+        {
+            if (item.Details.Files is not { } files ||
+                !files.Any(link => AttachmentStore.IsSameCopy(workspace, link, oldPath)))
+                return item.Line;
+            var updated = files.Select(link => AttachmentStore.IsSameCopy(workspace, link, oldPath)
+                ? link with { Name = name, RelativePath = relative } : link).ToArray();
+            return item.Line[..item.ContentEnd] + SerializeDetails(item.Details with { Files = updated });
+        }
+
+        string text = snapshot.Text;
+        foreach (var item in snapshot.Items.OrderByDescending(item => item.Offset))
+            text = ReplaceItem(text, item, Rewrite(item));
+        var deleted = snapshot.Catalog.Deleted.Select(entry =>
+            ParseItem(MarkdownTask().Match(entry.Line)) is { } item ? entry with { Line = Rewrite(item) } : entry).ToArray();
+        if (!deleted.SequenceEqual(snapshot.Catalog.Deleted))
+            text = PutCatalog(text, snapshot.Catalog with { Deleted = deleted });
+
+        // Publish the new path before switching the Markdown references so both names resolve during the write.
+        if (caseOnly)
+            File.Move(oldPath, nextPath);
+        else
+            File.Copy(oldPath, nextPath, overwrite: false);
+        try
+        {
+            var updated = Write(snapshot.Text, text);
+            if (!caseOnly)
+                AttachmentStore.DeleteCopy(workspace, file);
+            return updated;
+        }
+        catch
+        {
+            if (!caseOnly)
+            {
+                AttachmentStore.DeleteCopy(workspace, file with { RelativePath = relative });
+            }
+            throw;
+        }
+    }
 
     public void EnsureExists()
     {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 using Drawing = System.Drawing;
@@ -13,12 +14,22 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
     private readonly Drawing.Font menuFont = new("Microsoft YaHei UI", 9f);
     private readonly Drawing.Bitmap imageSlot = new(16, 16);
 
+    private readonly Forms.Timer fade = new() { Interval = 15 };
+    private readonly Stopwatch opening = new();
+
     public TrayMenu()
     {
         Font = menuFont;
         Renderer = new TrayRenderer();
         Padding = new Forms.Padding(3, 4, 3, 4);
+        Cursor = Forms.Cursors.Arrow;
         ShowItemToolTips = false;
+        fade.Tick += (_, _) =>
+        {
+            double t = Math.Min(1, opening.Elapsed.TotalMilliseconds / 110);
+            Opacity = 1 - 0.15 * Math.Pow(1 - t, 3);
+            if (t >= 1) fade.Stop();
+        };
     }
 
     public Forms.ToolStripMenuItem AddAction(string text, string icon, Action action, string? shortcut = null)
@@ -32,6 +43,24 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
         item.Click += (_, _) => action();
         Items.Add(item);
         return item;
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        if (!Forms.SystemInformation.HighContrast && Forms.SystemInformation.IsMenuAnimationEnabled && Ui.MotionEnabled)
+        {
+            Opacity = 0.85;
+            opening.Restart();
+            fade.Start();
+        }
+    }
+
+    protected override void OnClosed(Forms.ToolStripDropDownClosedEventArgs e)
+    {
+        fade.Stop();
+        Opacity = 1;
+        base.OnClosed(e);
     }
 
     protected override void OnSizeChanged(EventArgs e)
@@ -48,6 +77,7 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
         base.Dispose(disposing);
         if (disposing)
         {
+            fade.Dispose();
             imageSlot.Dispose();
             menuFont.Dispose();
         }

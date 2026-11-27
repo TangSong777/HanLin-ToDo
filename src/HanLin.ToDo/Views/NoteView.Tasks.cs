@@ -35,7 +35,7 @@ internal sealed partial class NoteView
     public Func<TodoDraft, string?>? AddTask { get; set; }
     public event Action<string>? ViewRequested;
     public event Action<TaskSort>? SortRequested;
-    public event Action<TodoItem, Func<TodoDetails, TodoDetails>>? DetailsRequested;
+    public Func<TodoItem, Func<TodoDetails, TodoDetails>, string?>? DetailsRequested { get; set; }
     public event Action<TodoItem>? DuplicateRequested;
     public event Action<IReadOnlyList<TodoItem>>? ReorderRequested;
     public event Action<TodoItem>? DeleteRequested;
@@ -368,7 +368,7 @@ internal sealed partial class NoteView
     private void PopulateItemMenu(ContextMenu menu, TodoItem item)
     {
         menu.Items.Clear();
-        menu.Items.Add(Menu("编辑任务", () => BeginEdit(item), icon: "pencil"));
+        menu.Items.Add(Menu("编辑待办", () => BeginEdit(item), icon: "pencil"));
         menu.Items.Add(Menu(item.Details.Pinned ? "取消置顶" : "置顶任务", () => TogglePin(item), icon: "pin"));
         menu.Items.Add(Menu("复制任务", () => DuplicateRequested?.Invoke(item), icon: "copy"));
         menu.Items.Add(MenuDivider());
@@ -534,12 +534,8 @@ internal sealed partial class NoteView
         return grid;
     }
 
-    private static ContextMenu CreateMenu()
-    {
-        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("SoftMenu") };
-        menu.Opened += (_, _) => Ui.Fade(menu, 0, 1, 120);
-        return menu;
-    }
+    private static ContextMenu CreateMenu() =>
+        new() { Style = (Style)Application.Current.FindResource("SoftMenu") };
 
     private static Separator MenuDivider() => new() { Style = (Style)Application.Current.FindResource("SoftMenuDivider") };
 

@@ -71,6 +71,10 @@ public partial class App : Application
                 return;
             }
 
+            var desktopData = Path.Combine(AppContext.BaseDirectory, "Data");
+            if (alternate is null && File.Exists(Path.Combine(desktopData, ".hanlin-portable")))
+                directory = desktopData;
+
             Directory.CreateDirectory(directory);
             taskLocation = new TaskLocation(directory, commandLineOverride: alternate is not null);
             string settingsPath = Path.Combine(directory, "settings.json");
@@ -105,7 +109,8 @@ public partial class App : Application
             note.AddTask = AddTask;
             note.ViewRequested += view => ChangePreferences(preferences with { TaskView = view });
             note.SortRequested += sort => ChangePreferences(preferences with { Sort = sort });
-            note.DetailsRequested += (item, update) => Mutate(() => tasks.UpdateDetails(item, update));
+            note.DetailsRequested = (item, update) => Mutate(() => tasks.UpdateDetails(item, update));
+            note.AttachmentRenameRequested = (file, name) => Mutate(() => tasks.RenameAttachment(note.Workspace, file, name));
             note.DuplicateRequested += item => Mutate(() => tasks.Duplicate(item));
             note.ReorderRequested += ReorderTasks;
             note.DeleteRequested += item => DeleteTasks([item]);
@@ -122,6 +127,11 @@ public partial class App : Application
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             timer = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) =>
             {
+                if (alternate is null && ReadDesktopUpdateRequest(desktopData))
+                {
+                    Shutdown();
+                    return;
+                }
                 ReloadTasks();
                 DeliverReminders();
                 note.RefreshTime();
@@ -186,6 +196,22 @@ public partial class App : Application
         return warning;
     }
 
+    private static bool ReadDesktopUpdateRequest(string data)
+    {
+        string request = Path.Combine(data, ".hanlin-exit");
+        if (!File.Exists(Path.Combine(data, ".hanlin-portable")) || !File.Exists(request))
+            return false;
+        try
+        {
+            File.Delete(request);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private string? PendingLegacyFile() => preferences.LegacyTasksHandled ? null : taskLocation.LegacyFile;
 
     private void RegisterHotkey()
@@ -229,16 +255,11 @@ public partial class App : Application
         trayMenu.AddAction("打开任务文件", "file", OpenTaskFile);
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.AddAction("退出 HanLin-ToDo", "exit", Shutdown);
-        tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "HanLin-ToDo · Ctrl+Alt+T", ContextMenuStrip = trayMenu, Visible = true };
+        tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "寒淋待办·HanLin-ToDo", ContextMenuStrip = trayMenu, Visible = true };
         tray.MouseClick += (_, args) =>
         {
             if (args.Button == Forms.MouseButtons.Left)
                 ShowCapture();
-        };
-        tray.BalloonTipClicked += (_, _) =>
-        {
-            SetNoteVisible(true);
-            ChangePreferences(preferences with { TaskView = TodoViews.Planned });
         };
     }
 
@@ -348,7 +369,7 @@ public partial class App : Application
     private void DeliverReminders()
     {
         var now = DateTime.Now;
-        if (tray is null || !current.Items.Any(item => TaskFile.IsReminderDue(item, now)))
+        if (!noteVisible || !current.Items.Any(item => TaskFile.IsReminderDue(item, now)))
             return;
         try
         {
@@ -360,7 +381,7 @@ public partial class App : Application
             var names = string.Join("\r\n", titles.Take(3));
             if (names.Length > 190) names = names[..190] + "…";
             if (titles.Count > 3) names += $"\r\n另有 {titles.Count - 3} 条提醒";
-            tray.ShowBalloonTip(7000, "HanLin-ToDo 提醒", names, Forms.ToolTipIcon.Info);
+            note.ShowNotice("到期提醒\r\n" + names);
         }
         catch (Exception ex) when (IsExpected(ex))
         {
@@ -560,7 +581,8 @@ public partial class App : Application
         {
             ReloadTasks();
             note.UpdateTasks(current);
-            string message = ex is IOException && ex.Message.StartsWith("任务", StringComparison.Ordinal)
+            string message = ex is IOException &&
+                (ex.Message.StartsWith("任务", StringComparison.Ordinal) || ex.Message.StartsWith("附件", StringComparison.Ordinal))
                 ? ex.Message : "保存任务失败，请检查 todo.md 是否可写。";
             note.ShowNotice(message);
             return message;
@@ -571,6 +593,8 @@ public partial class App : Application
     {
         try
         {
+            if (!tasks.HasChanged())
+                return;
             var next = tasks.Read(current);
             if (ReferenceEquals(next, current))
                 return;

@@ -20,7 +20,11 @@ internal sealed class DesktopSurface : IDisposable
     private HwndSource? source;
     private Point? position;
     private Point dragStart;
+    private Point lastDragCursor;
     private Native.Rect originalBounds;
+    private Native.Rect moveBounds;
+    private Forms.Screen? moveScreen;
+    private Rectangle moveWorkArea;
     private ResizeEdge resizeEdges;
     private bool dragging;
     private bool movedPastThreshold;
@@ -50,6 +54,11 @@ internal sealed class DesktopSurface : IDisposable
                 EndDrag();
         };
         view.PreviewMouseLeftButtonDown += BeginDrag;
+        view.PreviewMouseMove += (_, _) =>
+        {
+            if (dragging && resizeEdges == ResizeEdge.None && view.IsMouseCaptured)
+                MoveFromCursor();
+        };
         view.PreviewMouseLeftButtonUp += (_, _) =>
         {
             if (!dragging)
@@ -145,18 +154,20 @@ internal sealed class DesktopSurface : IDisposable
         {
             if (!dragging)
                 PositionWindow(position);
+            else if (resizeEdges == ResizeEdge.None && source is { IsDisposed: false } host &&
+                Native.GetWindowRect(host.Handle, out var bounds))
+                moveBounds = bounds;
         }));
         source.RootVisual = view;
         PositionWindow(position);
     }
 
-    private void PositionWindow(Point? target, Point? pointer = null)
+    private void PositionWindow(Point? target, Forms.Screen? screen = null)
     {
         if (disposed || source is null || source.IsDisposed || !Native.GetWindowRect(source.Handle, out var rect))
             return;
 
-        var monitorPoint = pointer ?? target;
-        var screen = monitorPoint is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen;
+        screen ??= target is { } location ? Forms.Screen.FromPoint(location) : Forms.Screen.PrimaryScreen;
         var area = screen?.WorkingArea ?? Forms.SystemInformation.WorkingArea;
         IntPtr window = source.Handle;
         NoteTheme theme = preferences.Theme;
@@ -236,11 +247,17 @@ internal sealed class DesktopSurface : IDisposable
         if (!view.CaptureMouse())
             return;
         resizeEdges = edges;
-        originalBounds = window;
-        dragStart = new Point(cursor.X, cursor.Y);
+        originalBounds = moveBounds = window;
+        dragStart = lastDragCursor = new Point(cursor.X, cursor.Y);
         movedPastThreshold = false;
         dragging = true;
-        dragTimer.Start();
+        if (edges == ResizeEdge.None)
+        {
+            moveScreen = Forms.Screen.FromPoint(dragStart);
+            moveWorkArea = moveScreen.WorkingArea;
+        }
+        else
+            dragTimer.Start();
         args.Handled = true;
     }
 
@@ -249,6 +266,10 @@ internal sealed class DesktopSurface : IDisposable
         if (!Native.GetCursorPos(out var cursor))
             return;
 
+        var point = new Point(cursor.X, cursor.Y);
+        if (point == lastDragCursor)
+            return;
+        lastDragCursor = point;
         int dx = cursor.X - dragStart.X;
         int dy = cursor.Y - dragStart.Y;
         if (!movedPastThreshold)
@@ -260,9 +281,38 @@ internal sealed class DesktopSurface : IDisposable
                 return;
         }
         if (resizeEdges == ResizeEdge.None)
-            PositionWindow(new Point(originalBounds.Left + dx, originalBounds.Top + dy), new Point(cursor.X, cursor.Y));
+            MoveWindow(new Point(originalBounds.Left + dx, originalBounds.Top + dy), point);
         else
             ResizeWindow(dx, dy);
+    }
+
+    private void MoveWindow(Point target, Point cursor)
+    {
+        if (source is not { IsDisposed: false } host || moveScreen is null)
+            return;
+        if (!moveScreen.Bounds.Contains(cursor))
+        {
+            var next = Forms.Screen.FromPoint(cursor);
+            if (!moveScreen.Equals(next))
+            {
+                moveScreen = next;
+                moveWorkArea = next.WorkingArea;
+                PositionWindow(target, next);
+                if (Native.GetWindowRect(host.Handle, out var placed))
+                    moveBounds = placed;
+                return;
+            }
+        }
+
+        // A move on the same display only changes the top-left of the existing WPF surface.
+        int width = moveBounds.Width;
+        int height = moveBounds.Height;
+        int x = Math.Clamp(target.X, moveWorkArea.Left, Math.Max(moveWorkArea.Left, moveWorkArea.Right - width));
+        int y = Math.Clamp(target.Y, moveWorkArea.Top, Math.Max(moveWorkArea.Top, moveWorkArea.Bottom - height));
+        if ((x != moveBounds.Left || y != moveBounds.Top) &&
+            Native.SetWindowPos(host.Handle, IntPtr.Zero, x, y, 0, 0,
+                Native.NoActivate | Native.NoZOrder | Native.NoSize))
+            moveBounds = new Native.Rect(x, y, x + width, y + height);
     }
 
     private void ResizeWindow(int dx, int dy)

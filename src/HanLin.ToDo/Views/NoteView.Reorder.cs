@@ -18,23 +18,18 @@ internal sealed partial class NoteView
     private sealed record TaskRow(Border Face, Thumb? Handle, Border Feedback, CheckBox Check);
     private readonly record struct DropLocation(TodoItem Item, bool After);
     private sealed record TaskDragPreview(
-        Grid Ghost, TranslateTransform Position, ScaleTransform Scale, TodoItem[] Group, int OriginalIndex);
+        Grid Ghost, TranslateTransform Position, TodoItem[] Group, int OriginalIndex, double RowHeight);
 
     private readonly Dictionary<TodoItem, TaskRow> taskRows = [];
     private readonly DispatcherTimer taskReorderTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly Canvas taskDragLayer = new() { IsHitTestVisible = false, ClipToBounds = true };
-    private readonly Border taskDropMarker = new()
-    {
-        Height = 2, CornerRadius = new CornerRadius(1), Visibility = Visibility.Hidden
-    };
-    private readonly TranslateTransform taskDropPosition = new();
     private TodoItem? draggedTask;
     private TaskDragPreview? taskDragPreview;
     private DropLocation? dropLocation;
     private Point dragOrigin;
     private Vector dragGrabOffset;
 
-    private bool CanReorder => !selecting && SearchQuery.Length == 0 && ActiveView != TodoViews.Trash && editor is null;
+    private bool CanReorder => !selecting && SearchQuery.Length == 0 && ActiveView != TodoViews.Trash && !IsEditingTask;
 
     private Thumb CreateTaskHandle(TodoItem item)
     {
@@ -50,7 +45,7 @@ internal sealed partial class NoteView
                 return;
             draggedTask = item;
             dragOrigin = Mouse.GetPosition(taskDragLayer);
-            dragGrabOffset = dragOrigin - TaskRowBounds(row.Face).TopLeft;
+            dragGrabOffset = dragOrigin - row.Face.TranslatePoint(new Point(), taskDragLayer);
             handle.Focus();
         };
         handle.DragDelta += (_, _) => ContinueTaskDrag();
@@ -61,9 +56,10 @@ internal sealed partial class NoteView
             if (!args.Canceled && taskDragPreview is not null)
                 ContinueTaskDrag();
             var destination = args.Canceled ? null : dropLocation;
-            ClearTaskDrag();
             if (destination is { } target)
-                MoveTask(item, target);
+                MoveTask(item, target, preview: taskDragPreview);
+            else
+                ClearTaskDrag(animateReset: true);
         };
         handle.PreviewKeyDown += (_, args) =>
         {
@@ -94,11 +90,12 @@ internal sealed partial class NoteView
                 return;
             preview = taskDragPreview = CreateTaskDragPreview(item, source.Face);
             taskDragLayer.Children.Insert(0, preview.Ghost);
-            Ui.Fade(source.Face, 1, 0.26, 140);
+            Ui.Fade(source.Face, source.Face.Opacity, 0, Ui.FastMotion);
             taskReorderTimer.Start();
         }
 
-        preview.Position.X = cursor.X - dragGrabOffset.X;
+        double left = TaskRowBounds(source.Face).Left;
+        preview.Position.X = Math.Clamp(cursor.X - dragGrabOffset.X, left - 8, left + 8);
         preview.Position.Y = cursor.Y - dragGrabOffset.Y;
         ShowDropLocation(IsNearTaskViewport(cursor) ? FindDropLocation(preview, cursor.Y) : null);
     }
@@ -138,15 +135,19 @@ internal sealed partial class NoteView
             .OrderBy(pair => TaskRowBounds(pair.Value.Face).Top)
             .Select(pair => pair.Key).ToArray();
         // Lift the row into place instead of snapping it under the cursor.
-        Ui.Fade(ghost, 0, 0.94, 130);
-        var lift = new DoubleAnimation(1, 1.014, TimeSpan.FromMilliseconds(150))
+        Ui.Fade(ghost, 0.7, 0.94, Ui.FastMotion);
+        if (Ui.MotionEnabled)
         {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            FillBehavior = FillBehavior.HoldEnd
-        };
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, lift);
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, lift.Clone());
-        return new(ghost, position, scale, group, Array.IndexOf(group, item));
+            var lift = new DoubleAnimation(1, 1.014, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.HoldEnd
+            };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, lift);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, lift.Clone());
+        }
+        return new(ghost, position, group, Array.IndexOf(group, item),
+            row.ActualHeight + row.Margin.Top + row.Margin.Bottom);
     }
 
     private DropLocation? FindDropLocation(TaskDragPreview preview, double y)
@@ -172,7 +173,13 @@ internal sealed partial class NoteView
         return first < group.Length ? new(group[first], false) : new(group[^1], true);
     }
 
-    private Rect TaskRowBounds(Border row) => new(row.TranslatePoint(new Point(), taskDragLayer), row.RenderSize);
+    private Rect TaskRowBounds(Border row)
+    {
+        // Use the arranged position so animated rows cannot move their own hit thresholds.
+        var parent = (UIElement)VisualTreeHelper.GetParent(row);
+        var offset = VisualTreeHelper.GetOffset(row);
+        return new Rect(parent.TranslatePoint(new Point(offset.X, offset.Y), taskDragLayer), row.RenderSize);
+    }
 
     private bool IsNearTaskViewport(Point cursor) =>
         cursor.X >= -16 && cursor.X <= taskDragLayer.ActualWidth + 16 &&
@@ -209,36 +216,69 @@ internal sealed partial class NoteView
 
     private void ShowDropLocation(DropLocation? location)
     {
-        dropLocation = location;
-        if (location is not { } target)
-        {
-            if (taskDropMarker.Visibility == Visibility.Visible)
-                Ui.FadeOutAndCollapse(taskDropMarker, 90);
+        if (dropLocation == location || taskDragPreview is not { } preview)
             return;
+        dropLocation = location;
+        int origin = preview.OriginalIndex;
+        int destination = origin;
+        if (location is { } target)
+        {
+            int slot = Array.IndexOf(preview.Group, target.Item) + (target.After ? 1 : 0);
+            destination = slot - (slot > origin ? 1 : 0);
         }
-        Rect bounds = TaskRowBounds(taskRows[target.Item].Face);
-        taskDropMarker.Width = Math.Max(0, bounds.Width - 4);
-        taskDropPosition.X = bounds.Left + 2;
-        taskDropPosition.Y = target.After ? bounds.Bottom - taskDropMarker.Height : bounds.Top;
-        taskDropMarker.Visibility = Visibility.Visible;
-        if (taskDropMarker.Opacity < 0.99)
-            Ui.Fade(taskDropMarker, taskDropMarker.Opacity, 1, 100);
+        for (int i = 0; i < preview.Group.Length; i++)
+        {
+            if (i == origin)
+                continue;
+            double shift = i >= destination && i < origin ? preview.RowHeight
+                : i > origin && i <= destination ? -preview.RowHeight : 0;
+            ShiftRow(taskRows[preview.Group[i]].Face, shift, animate: true);
+        }
     }
 
-    private void ClearTaskDrag()
+    private static void ShiftRow(Border row, double to, bool animate, double? from = null)
+    {
+        if (row.RenderTransform is not TranslateTransform shift)
+        {
+            if (to == 0 && from is null)
+                return;
+            shift = new TranslateTransform();
+            row.RenderTransform = shift;
+        }
+        double start = from ?? shift.Y;
+        if (animate && Ui.MotionEnabled)
+        {
+            if (from is null && Math.Abs(((double)shift.GetAnimationBaseValue(TranslateTransform.YProperty)) - to) < 0.1)
+                return;
+            shift.Y = to;
+            shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(start, to, TimeSpan.FromMilliseconds(170))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop
+            });
+        }
+        else
+        {
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
+            shift.Y = to;
+        }
+    }
+
+    private void ClearTaskDrag(bool animateReset = false)
     {
         taskReorderTimer.Stop();
-        ShowDropLocation(null);
+        dropLocation = null;
         TaskRow? row = draggedTask is { } item ? taskRows.GetValueOrDefault(item) : null;
         draggedTask = null;
         if (taskDragPreview is { } preview)
         {
             taskDragLayer.Children.Remove(preview.Ghost);
             taskDragPreview = null;
+            foreach (var peer in preview.Group)
+                ShiftRow(taskRows[peer].Face, 0, animateReset);
             if (row is not null)
             {
-                row.Face.BeginAnimation(OpacityProperty, null);
-                row.Face.ClearValue(OpacityProperty);
+                Ui.Fade(row.Face, row.Face.Opacity, 1, animateReset ? Ui.FastMotion : 0);
             }
         }
         if (row?.Handle is { IsDragging: true } handle)
@@ -256,18 +296,24 @@ internal sealed partial class NoteView
             MoveTask(item, new(peers[destination], direction > 0));
     }
 
-    private void MoveTask(TodoItem item, DropLocation location, bool showFeedback = true)
+    private void MoveTask(TodoItem item, DropLocation location, bool showFeedback = true, TaskDragPreview? preview = null)
     {
         var order = VisibleTasks();
         var peers = order.Where(peer => InSameOrderGroup(item, peer)).ToList();
         int prior = peers.IndexOf(item);
         if (prior < 0)
+        {
+            ClearTaskDrag(animateReset: true);
             return;
+        }
         peers.RemoveAt(prior);
         int target = peers.IndexOf(location.Item);
         int destination = target + (location.After ? 1 : 0);
         if (target < 0 || destination == prior)
+        {
+            ClearTaskDrag(animateReset: true);
             return;
+        }
         peers.Insert(destination, item);
         int index = 0;
         for (int slot = 0; slot < order.Length; ++slot)
@@ -275,14 +321,32 @@ internal sealed partial class NoteView
                 order[slot] = peers[index++];
 
         bool keepFocus = taskRows.TryGetValue(item, out var source) && source.Handle?.IsKeyboardFocused == true;
+        Point[]? previousPositions = Ui.MotionEnabled ? peers.Select(peer =>
+            peer == item && preview is not null
+                ? new Point(preview.Position.X, preview.Position.Y)
+                : taskRows[peer].Face.TranslatePoint(new Point(), taskDragLayer)).ToArray() : null;
+        ClearTaskDrag();
         ReorderRequested?.Invoke(order);
-        if ((keepFocus || showFeedback) && taskRows.FirstOrDefault(pair => pair.Key.Line == item.Line).Value is { } row)
+        var updated = VisibleTasks().Where(peer => InSameOrderGroup(item, peer)).ToArray();
+        if (!updated.Select(peer => peer.Line).SequenceEqual(peers.Select(peer => peer.Line)) ||
+            !taskRows.TryGetValue(updated[destination], out var row) || ReferenceEquals(row, source))
+            return;
+
+        if (previousPositions is not null)
         {
-            if (keepFocus)
-                row.Handle?.Focus();
-            if (showFeedback)
-                Ui.FadeDecoration(row.Feedback, 1, 0);
+            taskScroll.UpdateLayout();
+            for (int i = 0; i < updated.Length; i++)
+            {
+                var face = taskRows[updated[i]].Face;
+                double delta = previousPositions[i].Y - TaskRowBounds(face).Y;
+                if (Math.Abs(delta) > 0.5)
+                    ShiftRow(face, 0, animate: true, from: delta);
+            }
         }
+        if (keepFocus)
+            row.Handle?.Focus();
+        if (showFeedback)
+            Ui.FadeDecoration(row.Feedback, 1, 0);
     }
 
     private static bool InSameOrderGroup(TodoItem first, TodoItem second) =>

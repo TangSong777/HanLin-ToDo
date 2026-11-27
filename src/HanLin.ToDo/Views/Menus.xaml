@@ -12,7 +12,7 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ContextMenu">
-          <Grid Margin="6" MinWidth="170" MaxWidth="320">
+          <Grid Margin="6" MaxWidth="320">
             <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="10" IsHitTestVisible="False">
               <Border.Effect>
                 <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.19"/>
@@ -58,7 +58,7 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="25"/>
                   <ColumnDefinition Width="*"/>
-                  <ColumnDefinition Width="15"/>
+                  <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <ContentPresenter x:Name="MenuIcon" ContentSource="Icon" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 <Path x:Name="Selected" Width="10" Height="9" Data="M 1,5 L 4,8 L 9,2" Stretch="Uniform"
@@ -66,18 +66,21 @@
                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                       HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                 <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
-                                  VerticalAlignment="Center" Margin="2,0,4,0"/>
-                <Path x:Name="More" Grid.Column="2" Visibility="Collapsed" Data="M 2,1 L 6,5 L 2,9"
-                      Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
-                      StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                  VerticalAlignment="Center" Margin="2,0,3,0"/>
+                <Grid Grid.Column="2">
+                  <Path x:Name="More" Visibility="Collapsed" Width="15" Data="M 7,1 L 11,5 L 7,9"
+                        Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
+                        StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        VerticalAlignment="Center"/>
+                  <ContentPresenter x:Name="TrailingAction" Content="{TemplateBinding Tag}" VerticalAlignment="Center"/>
+                </Grid>
               </Grid>
             </Border>
             <Popup x:Name="PART_Popup" Placement="Right" PlacementTarget="{Binding ElementName=Item}"
                    IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
                    AllowsTransparency="True" PopupAnimation="None"
                    Focusable="False" HorizontalOffset="-6">
-              <Grid Margin="6" MinWidth="140" MaxWidth="280" UseLayoutRounding="True" SnapsToDevicePixels="True"
+              <Grid Margin="6" MaxWidth="280" UseLayoutRounding="True" SnapsToDevicePixels="True"
                     TextOptions.TextFormattingMode="Display">
                 <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="10" IsHitTestVisible="False">
                   <Border.Effect>

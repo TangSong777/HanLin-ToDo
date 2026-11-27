@@ -31,13 +31,14 @@ internal sealed partial class NoteView : Border
     private readonly TextBlock taskCount = Ui.Text("", 12, "MutedBrush");
     private TodoSnapshot snapshot = new("", []);
     private NotePreferences settings = new();
-    private TodoItem? editTarget;
-    private TaskEditor? editor;
+    private CaptureWindow? editWindow;
     private DateTime lastRender;
     private bool initialized;
     private bool loadedTasks;
     private bool deferredRowRefresh;
     private readonly HashSet<string> enteringRows = [];
+    // 列表刷新会重建全部行，样式查一次就够；主题换了（Ui.ThemeVersion 变）再取。
+    private (int Version, Style Check, Style Row)? rowStyles;
 
     public event Action? NewRequested;
     public event Action? SettingsRequested;
@@ -48,8 +49,8 @@ internal sealed partial class NoteView : Border
     public bool IsLocked => settings.Locked;
     // 工作目录；附件记录里存的是相对这里的路径。
     public string Workspace { get; set; } = "";
-    public bool IsEditingTask => editor is not null;
-    public bool IsPickerOpen => quickDate.IsDropDownOpen || quickTime.IsDropDownOpen || editor?.IsPickerOpen == true;
+    public bool IsEditingTask => editWindow is not null;
+    public bool IsPickerOpen => quickDate.IsDropDownOpen || quickTime.IsDropDownOpen;
 
     public NoteView()
     {
@@ -129,9 +130,6 @@ internal sealed partial class NoteView : Border
         };
         var taskArea = new Grid { Margin = new Thickness(0, 0, 7, 0) };
         taskArea.Children.Add(taskScroll);
-        taskDropMarker.SetResourceReference(BackgroundProperty, "AccentBrush");
-        taskDropMarker.RenderTransform = taskDropPosition;
-        taskDragLayer.Children.Add(taskDropMarker);
         taskArea.Children.Add(taskDragLayer);
         Grid.SetRow(taskArea, 2);
         layout.Children.Add(taskArea);
@@ -264,7 +262,7 @@ internal sealed partial class NoteView : Border
         var element = origin as DependencyObject;
         while (element is not null)
         {
-            if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or ComboBox or DatePicker or TaskEditor)
+            if (element is ButtonBase or TextBoxBase or RangeBase or Thumb or ComboBox or DatePicker)
                 return false;
             if (element == titleBand)
                 inTitleBar = true;
@@ -316,8 +314,7 @@ internal sealed partial class NoteView : Border
         loadedTasks = true;
     }
 
-    // Rebuilding rows detaches the inline editor and closes its popups.
-    private bool CanRefreshRows => !IsPickerOpen && editor?.IsKeyboardFocusWithin != true;
+    private bool CanRefreshRows => !IsPickerOpen;
 
     private void RefreshDeferredRows()
     {
@@ -353,26 +350,21 @@ internal sealed partial class NoteView : Border
     {
         deferredRowRefresh = false;
         lastRender = DateTime.Now;
+        if (rowStyles is not { } cached || cached.Version != Ui.ThemeVersion)
+            rowStyles = (Ui.ThemeVersion,
+                (Style)Application.Current.FindResource("SoftCheck"),
+                (Style)Application.Current.FindResource("SoftTaskRow"));
         ClearTaskDrag();
+        SetAttachmentHover(null);
         taskRows.Clear();
         pending.Children.Clear();
         completed.Children.Clear();
         RefreshTaskNavigation();
 
-        TodoItem? ownRow = null;
-        if (editTarget is { } target)
-        {
-            var matches = snapshot.Items.Where(item => item.Line == target.Line).ToArray();
-            ownRow = snapshot.Items.FirstOrDefault(item => target.Details.Id is not null && item.Details.Id == target.Details.Id)
-                ?? matches.FirstOrDefault(item => item.Offset == target.Offset) ??
-                (matches.Length == 1 ? matches[0] : null);
-        }
-
         string query = SearchQuery;
         string view = ActiveView;
         if (view == TodoViews.Trash && query.Length == 0)
         {
-            if (editor is not null) pending.Children.Add(editor);
             RenderTrash();
             return;
         }
@@ -380,19 +372,17 @@ internal sealed partial class NoteView : Border
         var remaining = visible.Where(item => !item.Done).ToArray();
         var finished = visible.Where(item => item.Done).ToArray();
         bool showFinished = settings.ShowCompleted || (query.Length > 0) || view == TodoViews.Completed;
-        if (editor is not null && !remaining.Contains(ownRow) && !(showFinished && finished.Contains(ownRow)))
-            pending.Children.Add(editor);
 
         taskCount.Text = query.Length > 0 || view == TodoViews.Completed ? $"{visible.Length} 项" : $"{remaining.Length} 项";
         taskCount.Visibility = Visibility.Visible;
-        if (visible.Length == 0 && editor is null)
+        if (visible.Length == 0)
         {
             var empty = Ui.Text(query.Length == 0 ? "这里还没有任务" : "没有找到匹配的任务", 14, "MutedBrush");
             empty.Margin = new Thickness(6, 12, 6, 10);
             pending.Children.Add(empty);
         }
         foreach (var item in remaining)
-            pending.Children.Add(item == ownRow && editor is not null ? editor : MakeRow(item));
+            pending.Children.Add(MakeRow(item));
 
         completedButton.Visibility = finished.Length == 0 || query.Length > 0 || view == TodoViews.Completed
             ? Visibility.Collapsed : Visibility.Visible;
@@ -401,7 +391,7 @@ internal sealed partial class NoteView : Border
         if (showFinished)
         {
             foreach (var item in finished)
-                completed.Children.Add(item == ownRow && editor is not null ? editor : MakeRow(item));
+                completed.Children.Add(MakeRow(item));
         }
     }
 
@@ -416,7 +406,7 @@ internal sealed partial class NoteView : Border
         var handle = CanReorder ? CreateTaskHandle(item) : null;
         if (handle is not null)
             grid.Children.Add(handle);
-        var check = new CheckBox { Style = (Style)Application.Current.FindResource("SoftCheck"),
+        var check = new CheckBox { Style = rowStyles!.Value.Check,
             IsChecked = selecting ? selected.Contains(item) : item.Done };
         AutomationProperties.SetName(check, (selecting ? "选择 " : item.Done ? "取消完成 " : "完成 ") + item.Title);
         check.Checked += (_, _) => SetRowSelectionOrDone(item, true);
@@ -474,15 +464,23 @@ internal sealed partial class NoteView : Border
         feedback.SetResourceReference(BackgroundProperty, "TintBrush");
         var rowContent = new Grid();
         rowContent.Children.Add(feedback);
+        var attachmentTarget = new Border
+        {
+            CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1.5),
+            Opacity = 0, IsHitTestVisible = false
+        };
+        attachmentTarget.SetResourceReference(BackgroundProperty, "TintBrush");
+        attachmentTarget.SetResourceReference(BorderBrushProperty, "AccentBrush");
+        rowContent.Children.Add(attachmentTarget);
         rowContent.Children.Add(grid);
-        var row = new Border { Child = rowContent, Style = (Style)Application.Current.FindResource("SoftTaskRow") };
+        var row = new Border { Child = rowContent, Style = rowStyles!.Value.Row };
         row.SetResourceReference(BorderBrushProperty, "LineBrush");
         if (!selecting)
         {
             row.ContextMenu = CreateMenu();
             row.ContextMenuOpening += (_, _) => PopulateItemMenu(row.ContextMenu, item);
         }
-        EnableAttachmentDrop(row, item, feedback);
+        EnableAttachmentDrop(row, item, attachmentTarget);
         taskRows.Add(item, new TaskRow(row, handle, feedback, check));
         if (SearchQuery.Length == 0 && item.Details.Id is { } id && enteringRows.Remove(id))
         {
@@ -513,26 +511,14 @@ internal sealed partial class NoteView : Border
 
     private void BeginEdit(TodoItem item)
     {
-        editTarget = item;
-        editor = new TaskEditor(new(item.Title, item.Due, item.Details), draft =>
+        if (editWindow is null && SaveEdit is { } save)
         {
-            string? error = SaveEdit?.Invoke(item, draft);
-            if (error is null)
-                CloseEditor();
-            return error;
-        }, CloseEditor, workspace: Workspace);
-        Render();
-        editor.FocusTitle();
-        editor.BringIntoView();
-        Ui.SlideFadeIn(editor, 8, 180);
-    }
-
-    private void CloseEditor()
-    {
-        editor = null;
-        editTarget = null;
-        Render();
-        quickInput.Focus();
+            editWindow = new CaptureWindow(settings.Theme, draft => save(item, draft), Workspace,
+                new TodoDraft(item.Title, item.Due, item.Details));
+            editWindow.Closed += (_, _) => editWindow = null;
+            editWindow.Show();
+        }
+        editWindow?.FocusEditor();
     }
 }
 

@@ -1,9 +1,39 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
   <ResourceDictionary.MergedDictionaries>
     <ResourceDictionary Source="Calendar.xaml"/>
     <ResourceDictionary Source="Menus.xaml"/>
   </ResourceDictionary.MergedDictionaries>
+
+  <Style TargetType="ToolTip">
+    <Setter Property="OverridesDefaultStyle" Value="True"/>
+    <Setter Property="Background" Value="{DynamicResource TipSurfaceBrush}"/>
+    <Setter Property="Foreground" Value="{DynamicResource TipInkBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource TipEdgeBrush}"/>
+    <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="Padding" Value="9,6"/>
+    <Setter Property="MaxWidth" Value="300"/>
+    <Setter Property="MaxHeight" Value="420"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToolTip">
+          <Border CornerRadius="7" BorderThickness="1" Padding="{TemplateBinding Padding}" ClipToBounds="True"
+                  Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}">
+            <ContentPresenter>
+              <ContentPresenter.Resources>
+                <DataTemplate DataType="{x:Type sys:String}">
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                </DataTemplate>
+              </ContentPresenter.Resources>
+            </ContentPresenter>
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
 
   <Style x:Key="SoftButton" TargetType="Button">
     <Setter Property="Padding" Value="10,5"/>
@@ -32,6 +62,10 @@
             </Trigger>
             <Trigger Property="Tag" Value="Primary">
               <Setter TargetName="Hover" Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+              <Setter TargetName="Press" Property="Background" Value="{DynamicResource AccentPressBrush}"/>
+            </Trigger>
+            <Trigger Property="Tag" Value="Danger">
+              <Setter TargetName="Hover" Property="Background" Value="{DynamicResource PressBrush}"/>
               <Setter TargetName="Press" Property="Background" Value="{DynamicResource AccentPressBrush}"/>
             </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
@@ -379,6 +413,100 @@
             <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=PART_Root}"
                    AllowsTransparency="False" PopupAnimation="None" StaysOpen="False"/>
           </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="SoftChoice" TargetType="ComboBox">
+    <Setter Property="MinHeight" Value="28"/>
+    <Setter Property="MaxDropDownHeight" Value="220"/>
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource EdgeBrush}"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="ItemContainerStyle">
+      <Setter.Value>
+        <Style TargetType="ComboBoxItem">
+          <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+          <Setter Property="MinHeight" Value="27"/>
+          <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ComboBoxItem">
+                <Border x:Name="Item" Background="Transparent" CornerRadius="5" Padding="7,4">
+                  <ContentPresenter VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsSelected" Value="True">
+                    <Setter TargetName="Item" Property="Background" Value="{DynamicResource TintBrush}"/>
+                  </Trigger>
+                  <Trigger Property="IsHighlighted" Value="True">
+                    <Setter TargetName="Item" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                  </Trigger>
+                  <Trigger Property="IsEnabled" Value="False">
+                    <Setter TargetName="Item" Property="Opacity" Value="0.52"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+      </Setter.Value>
+    </Setter>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <Border x:Name="Chrome" CornerRadius="6" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+              <Grid>
+                <ToggleButton Focusable="False" ClickMode="Press" Background="Transparent"
+                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                  <ToggleButton.Template>
+                    <ControlTemplate TargetType="ToggleButton">
+                      <Border Background="{TemplateBinding Background}" CornerRadius="5">
+                        <Path Data="M 1,2 L 5,6 L 9,2" Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.25"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      </Border>
+                    </ControlTemplate>
+                  </ToggleButton.Template>
+                </ToggleButton>
+                <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                  ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                  VerticalAlignment="Center" Margin="7,0,23,0" IsHitTestVisible="False"/>
+              </Grid>
+            </Border>
+            <Popup x:Name="PART_Popup" Focusable="False" AllowsTransparency="True"
+                   Placement="Bottom" PlacementTarget="{Binding ElementName=Chrome}" VerticalOffset="3"
+                   PopupAnimation="None" IsOpen="{TemplateBinding IsDropDownOpen}">
+              <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource EdgeBrush}"
+                      BorderThickness="1" CornerRadius="7" Padding="3"
+                      MinWidth="{TemplateBinding ActualWidth}" RenderOptions.ClearTypeHint="Enabled">
+                <ScrollViewer CanContentScroll="True" MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowHoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            </Trigger>
+            <Trigger Property="IsDropDownOpen" Value="True">
+              <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Chrome" Property="Opacity" Value="0.52"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

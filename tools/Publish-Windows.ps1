@@ -35,6 +35,14 @@ if ($BuildOnly) {
     return
 }
 
+$sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$localUpdater = Join-Path $sourceRoot 'Update-HanLin.ps1'
+$desktopTarget = Join-Path (Split-Path -Parent $sourceRoot) 'HanLin-ToDo'
+if ((Test-Path -LiteralPath $localUpdater -PathType Leaf) -and $outputPath.TrimEnd('\','/') -ieq $desktopTarget) {
+    & $localUpdater -App ToDo -BuiltPath $packedExe -SkipLaunch:$SkipLaunch
+    return
+}
+
 $processName = 'HanLin-ToDo'
 $running = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
 if ($running.Count -gt 0) {
