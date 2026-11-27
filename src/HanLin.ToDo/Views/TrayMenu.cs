@@ -15,14 +15,20 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
     private const float OuterRadius = 8;
     private const float ItemRadius = 5;
     private const int DpiChanged = 0x02E0;
+    private const int MouseLowLevelHook = 14;
     private readonly Drawing.Font menuFont = new("Microsoft YaHei UI", 9f);
     private readonly Drawing.Bitmap imageSlot = new(16, 16);
 
     private readonly Forms.Timer fade = new() { Interval = 15 };
     private readonly Stopwatch opening = new();
+    private readonly MouseHook mouseCallback;
+    private IntPtr mouseHook;
+    private int openingId;
+    private bool dismissalPending;
 
     public TrayMenu()
     {
+        mouseCallback = ObserveOutsideClick;
         Font = menuFont;
         Renderer = new TrayRenderer();
         Padding = new Forms.Padding(3, 4, 3, 4);
@@ -51,6 +57,10 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
 
     protected override void OnOpened(EventArgs e)
     {
+        openingId++;
+        dismissalPending = false;
+        // The IME can open its own popup without taking foreground focus.
+        mouseHook = SetWindowsHookExW(MouseLowLevelHook, mouseCallback, GetModuleHandleW(null), 0);
         UpdateOutline();
         base.OnOpened(e);
         if (!Forms.SystemInformation.HighContrast && Forms.SystemInformation.IsMenuAnimationEnabled && Ui.MotionEnabled)
@@ -63,10 +73,54 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
 
     protected override void OnClosed(Forms.ToolStripDropDownClosedEventArgs e)
     {
+        StopWatchingMouse();
         fade.Stop();
         Opacity = 1;
         base.OnClosed(e);
     }
+
+    private IntPtr ObserveOutsideClick(int code, IntPtr message, IntPtr data)
+    {
+        if (code == 0 && Visible && !dismissalPending &&
+            message.ToInt32() is 0x0201 or 0x0204 or 0x0207 or 0x020B)
+        {
+            // MSLLHOOKSTRUCT starts with the cursor position in screen coordinates.
+            var point = new Drawing.Point(Marshal.ReadInt32(data), Marshal.ReadInt32(data, sizeof(int)));
+            if (!Bounds.Contains(point))
+            {
+                dismissalPending = true;
+                int observedOpening = openingId;
+                BeginInvoke(new Forms.MethodInvoker(() =>
+                {
+                    if (Visible && openingId == observedOpening)
+                        Close(Forms.ToolStripDropDownCloseReason.AppClicked);
+                }));
+            }
+        }
+        return CallNextHookEx(IntPtr.Zero, code, message, data);
+    }
+
+    private void StopWatchingMouse()
+    {
+        if (mouseHook == IntPtr.Zero)
+            return;
+        UnhookWindowsHookEx(mouseHook);
+        mouseHook = IntPtr.Zero;
+    }
+
+    private delegate IntPtr MouseHook(int code, IntPtr message, IntPtr data);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern IntPtr SetWindowsHookExW(int kind, MouseHook callback, IntPtr module, uint threadId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("kernel32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandleW(string? name);
 
     protected override void OnSizeChanged(EventArgs e)
     {
@@ -92,6 +146,7 @@ internal sealed class TrayMenu : Forms.ContextMenuStrip
 
     protected override void Dispose(bool disposing)
     {
+        if (disposing) StopWatchingMouse();
         base.Dispose(disposing);
         if (disposing)
         {
